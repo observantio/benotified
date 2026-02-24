@@ -51,3 +51,13 @@ See repository root `.env.example` for full configuration.
 - TLS is optional (`BENOTIFIED_TLS_ENABLED=false` by default).
 - Deploy on an internal network only.
 - BeNotified keeps operational logs; authoritative user audit is in main service.
+
+## Testing
+
+```bash
+pytest -q
+```
+
+When contributing from the BeObservant mono-repo root, `.pre-commit-config.yaml`
+runs this BeNotified test suite together with all other service and UI checks
+before each commit.

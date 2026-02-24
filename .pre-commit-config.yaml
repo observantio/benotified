@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: benotified-unit-tests
+        name: BeNotified unit tests
+        language: system
+        entry: bash -lc 'cd BeNotified && python -m pytest -q'
+        pass_filenames: false
+        always_run: true
