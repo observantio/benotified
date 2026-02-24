@@ -59,4 +59,5 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ghcr.io/stefankumarasinghe/benotified:stable
+            ghcr.io/observantio/benotified:stable
+            ghcr.io/observantio/benotified:${{ github.event.workflow_run.id }}
