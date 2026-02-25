@@ -14,11 +14,10 @@ from typing import Dict, List, Optional
 
 from cryptography.fernet import Fernet
 from fastapi import HTTPException, status
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from config import config
 from database import get_db_session
-from db_models import Tenant, User, Group, AlertIncident as AlertIncidentDB
+from db_models import Tenant, User, Group, UserApiKey, AlertIncident as AlertIncidentDB
 from models.access.auth_models import TokenData, Role
 from services.common.url_utils import is_safe_http_url
 from services.common.visibility import normalize_visibility
@@ -27,50 +26,58 @@ ALLOWED_JIRA_AUTH_MODES = {"api_token", "bearer", "sso"}
 logger = logging.getLogger(__name__)
 
 
-def _ensure_tenant_shadow(tenant_id: str) -> None:
-    if not tenant_id:
-        return
-    now = datetime.now(timezone.utc)
-    with get_db_session() as db:
-        db.execute(
-            pg_insert(Tenant)
-            .values(
-                id=tenant_id,
-                name=(f"tenant-{tenant_id}"[:100] or tenant_id[:100]),
-                display_name=f"Tenant {tenant_id[:8]}",
-                is_active=True,
-                settings={},
-                created_at=now,
-                updated_at=now,
-            )
-            .on_conflict_do_nothing(index_elements=[Tenant.id])
-        )
-
-
 def _tenant_id_from_scope_header(scoped_header: Optional[str]) -> str:
-    candidate = (scoped_header.split("|")[0].strip() if scoped_header else None) or config.DEFAULT_ORG_ID
-    if candidate:
-        try:
-            _ensure_tenant_shadow(candidate)
-        except Exception as exc:
-            logger.warning("Failed to ensure tenant shadow for %s: %s", candidate, exc)
-        return candidate
+    candidate = (scoped_header.split("|")[0].strip() if scoped_header else "") or config.DEFAULT_ORG_ID
 
     with get_db_session() as db:
-        tenant = db.query(Tenant).filter(Tenant.id == candidate).first()
-        if tenant:
-            return tenant.id
-
-        user = db.query(User).filter(User.org_id == candidate).first()
-        if user:
-            return user.tenant_id
-
-        tenant = db.query(Tenant).filter(Tenant.name == candidate).first()
-        if tenant:
-            return tenant.id
-
         default = db.query(Tenant).filter_by(name=config.DEFAULT_ADMIN_TENANT).first()
-        return default.id if default else config.DEFAULT_ADMIN_TENANT
+        default_tenant_id = default.id if default else config.DEFAULT_ADMIN_TENANT
+
+        if not candidate:
+            return default_tenant_id
+
+        tenant_by_id = db.query(Tenant).filter(Tenant.id == candidate).first()
+        if tenant_by_id:
+            return tenant_by_id.id
+
+        tenant_by_name = db.query(Tenant).filter(Tenant.name == candidate).first()
+        if tenant_by_name:
+            return tenant_by_name.id
+
+        scope_tenants = {
+            str(row[0])
+            for row in (
+                db.query(UserApiKey.tenant_id)
+                .filter(UserApiKey.key == candidate, UserApiKey.is_enabled.is_(True))
+                .distinct()
+                .all()
+            )
+            if row and row[0]
+        }
+        if len(scope_tenants) > 1:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Ambiguous tenant scope header")
+        if len(scope_tenants) == 1:
+            return next(iter(scope_tenants))
+
+        user_tenants = {
+            str(row[0])
+            for row in (
+                db.query(User.tenant_id)
+                .filter(User.org_id == candidate, User.is_active.is_(True))
+                .distinct()
+                .all()
+            )
+            if row and row[0]
+        }
+        if len(user_tenants) > 1:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Ambiguous tenant scope header")
+        if len(user_tenants) == 1:
+            return next(iter(user_tenants))
+
+        if candidate == config.DEFAULT_ORG_ID:
+            return default_tenant_id
+
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unknown tenant scope header")
 
 
 def _encrypt_tenant_secret(value: Optional[str]) -> Optional[str]:
