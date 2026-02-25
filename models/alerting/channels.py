@@ -26,7 +26,6 @@ DESC_VISIBILITY_SCOPE = "Visibility scope"
 
 
 class ChannelType(str, Enum):
-    """Notification channel types."""
     EMAIL = "email"
     SLACK = "slack"
     TEAMS = "teams"
@@ -35,7 +34,6 @@ class ChannelType(str, Enum):
 
 
 class NotificationChannel(BaseModel):
-    """Notification channel configuration."""
     id: Optional[str] = Field(None, description=DESC_UNIQUE_IDENTIFIER)
     name: str = Field(..., description=DESC_CHANNEL_NAME)
     type: ChannelType = Field(..., description=DESC_CHANNEL_TYPE)
@@ -44,21 +42,20 @@ class NotificationChannel(BaseModel):
     created_by: Optional[str] = Field(None, alias="createdBy", description="Owner user id")
     visibility: Visibility = Field(Visibility.PRIVATE, description=DESC_VISIBILITY_SCOPE)  # Using str for now, can import Visibility if needed
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_CHANNEL_SHARED_WITH)
-    
+
     class Config:
         use_enum_values = True
         populate_by_name = True
 
 
 class NotificationChannelCreate(BaseModel):
-    """Create a notification channel."""
     name: str = Field(..., min_length=1, max_length=100, description=DESC_CHANNEL_NAME)
     type: ChannelType = Field(..., description=DESC_CHANNEL_TYPE)
     enabled: bool = Field(True, description=DESC_CHANNEL_ENABLED)
     config: Dict[str, Any] = Field(..., description=DESC_CHANNEL_SPECIFIC_CONFIG)
     visibility: Visibility = Field(Visibility.PRIVATE, description=DESC_VISIBILITY_SCOPE)
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_SHARE_WITH)
-    
+
     class Config:
         use_enum_values = True
         populate_by_name = True

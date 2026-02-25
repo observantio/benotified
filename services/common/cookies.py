@@ -28,11 +28,6 @@ def is_secure_cookie_request(
     trust_proxy_headers: bool,
     trusted_proxy_cidrs: Sequence[str] | None = None,
 ) -> bool:
-    """Return True when a cookie should be marked Secure for the given request.
-
-    trust_proxy_headers without trusted_proxy_cidrs is intentionally
-    rejected — trusting headers from any peer is a misconfiguration.
-    """
     if request.url.scheme == "https":
         return True
 

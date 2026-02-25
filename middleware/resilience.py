@@ -27,12 +27,11 @@ def with_retry(
     max_retries: int = config.MAX_RETRIES,
     backoff: float = config.RETRY_BACKOFF
 ) -> Callable[[Callable[P, T]], Callable[P, T]]:
-    """Decorator to retry failed async operations with exponential backoff."""
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             last_exception = None
-            
+
             for attempt in range(max_retries + 1):
                 try:
                     return await func(*args, **kwargs)
@@ -65,13 +64,12 @@ def with_retry(
             if last_exception is not None:
                 raise last_exception
             raise RuntimeError(f"Retry wrapper exited without result or captured exception for {func.__name__}")
-        
+
         return wrapper
     return decorator
 
 
 def with_timeout(timeout: float = config.DEFAULT_TIMEOUT) -> Callable[[Callable[P, T]], Callable[P, T]]:
-    """Decorator to add timeout to async operations."""
     def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @wraps(func)
         async def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
@@ -80,6 +78,6 @@ def with_timeout(timeout: float = config.DEFAULT_TIMEOUT) -> Callable[[Callable[
             except asyncio.TimeoutError:
                 logger.error(f"Timeout after {timeout}s for {func.__name__}")
                 raise
-        
+
         return wrapper
     return decorator

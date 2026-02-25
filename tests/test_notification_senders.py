@@ -1,3 +1,11 @@
+"""
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 try:
     from ._env import ensure_test_env
 except ImportError:
@@ -28,7 +36,6 @@ def test_send_slack_calls_transport(monkeypatch):
     channel = {"webhook_url": "https://hooks.slack.com/services/test"}
     res = asyncio.run(senders.send_slack(client, channel, _make_alert(), "firing"))
     assert res is True
-    # post function should have been called with the same slack URL we provided
     assert called['url'] == channel['webhook_url']
 
 
@@ -48,16 +55,10 @@ def test_send_webhook_and_pagerduty(monkeypatch):
 
     monkeypatch.setattr(transport, "post_with_retry", fake_post)
     client = httpx.AsyncClient()
-
-    # webhook
     channel = {"url": "https://example.com/h"}
     assert asyncio.run(senders.send_webhook(client, channel, _make_alert(), "firing")) is True
     assert calls[-1][0] == "https://example.com/h"
-
-    # pagerduty
     channel2 = {"routing_key": "rk"}
     assert asyncio.run(senders.send_pagerduty(client, channel2, _make_alert(), "resolved")) is True
     assert calls[-1][0] == "https://events.pagerduty.com/v2/enqueue"
-
-    # pagerduty missing routing_key
     assert asyncio.run(senders.send_pagerduty(client, {}, _make_alert(), "firing")) is False

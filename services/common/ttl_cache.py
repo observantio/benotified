@@ -27,17 +27,6 @@ logger = logging.getLogger(__name__)
 
 
 class TTLCache:
-    """Async-safe TTL cache that prefers Redis when available, otherwise falls back to in-memory.
-
-    - `get` / `set` / `clear` operate against Redis when initialized with a reachable Redis URL.
-    - `get_or_set` still serialises concurrent factories in-process (single locked region).
-    - `None` returned by the factory is NOT cached (parity with previous behaviour).
-
-    Configuration (environment variables):
-    - TTL_CACHE_REDIS_URL: Redis connection URL to use for the cache (optional).
-      If unset, falls back to in-memory cache. If connection fails, in-memory is used.
-    - TTL_CACHE_KEY_PREFIX: optional Redis key prefix (defaults to "beobs:ttl").
-    """
 
     def __init__(self) -> None:
         self._data: Dict[str, tuple[Any, float]] = {}
@@ -56,7 +45,6 @@ class TTLCache:
                 self._redis_client = None
 
     async def _ensure_redis(self) -> bool:
-        """Verify Redis connection on-demand and log success once."""
         if not self._redis_client:
             return False
         if self._redis_connected:
@@ -133,10 +121,6 @@ class TTLCache:
             self._data[key] = (value, time.monotonic() + max(0, int(ttl_seconds)))
 
     async def get_or_set(self, key: str, factory: Callable[[], Awaitable[Any]], ttl_seconds: int) -> Optional[Any]:
-        """If the key exists and is fresh return it; otherwise run `factory()` once (serialised) and cache result.
-
-        Note: if factory() returns None the value will NOT be cached and None is returned.
-        """
         async with self._lock:
             # Try Redis first
             if await self._ensure_redis():

@@ -33,7 +33,6 @@ security = HTTPBearer(auto_error=False)
 
 @dataclass
 class _AuthServiceStub:
-    """Compatibility stub used by alertmanager router for user lookups."""
 
     def get_user_by_id(self, _user_id: str):
         return None
@@ -52,7 +51,6 @@ def _normalize_shadow_username(raw: str, user_id: str) -> str:
 
 
 def _ensure_shadow_context(current_user: TokenData) -> None:
-    """Ensure tenant/user/group shadow records exist for local FK constraints."""
     tenant_id = str(current_user.tenant_id or "").strip()
     user_id = str(current_user.user_id or "").strip()
     if not tenant_id or not user_id:

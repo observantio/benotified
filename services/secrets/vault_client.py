@@ -45,7 +45,6 @@ class VaultSecretProvider:
         cacert: Optional[str] = None,
         cache_ttl: float = 30.0,
     ) -> None:
-        # imports moved to module top; hvac may be None if not installed
         if hvac is None:
             raise VaultClientError("hvac library is required for VaultSecretProvider")
 
@@ -86,7 +85,6 @@ class VaultSecretProvider:
             raise VaultClientError("Vault authentication failed")
 
     def _approle_login(self) -> None:
-        # _secret_id_fn is guaranteed to be non-None when this is called
         assert self._secret_id_fn is not None
         secret_id = self._secret_id_fn()
         auth = self._client.auth.approle.login(role_id=self._role_id, secret_id=secret_id)
@@ -104,7 +102,6 @@ class VaultSecretProvider:
             entry = self._cache.get(key, _SENTINEL)
             if entry is _SENTINEL:
                 return _SENTINEL
-            # at this point entry should be tuple[float, object]
             assert isinstance(entry, tuple) and len(entry) == 2
             ts, value = entry  # type: float, Any
             if time.monotonic() - ts > self._cache_ttl:
@@ -119,7 +116,7 @@ class VaultSecretProvider:
     def get(self, key: str) -> Optional[str]:
         cached = self._from_cache(key)
         if cached is not _SENTINEL:
-            return cached  # type: ignore[return-value]
+            return cached  
 
         self._ensure_authenticated()
 

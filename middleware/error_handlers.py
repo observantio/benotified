@@ -30,13 +30,6 @@ def handle_route_errors(
     bad_gateway_detail: str = "Upstream request failed",
     internal_detail: str | None = "Internal server error",
 ) -> Callable[[F], F]:
-    """Decorate async route handlers to map expected exceptions to HTTP errors.
-
-    - `HTTPException` is always re-raised unchanged.
-    - `bad_request_exceptions` are mapped to 400.
-    - `bad_gateway_exceptions` are mapped to 502.
-    - any other exception is mapped to 500 only when `internal_detail` is provided.
-    """
 
     def decorator(func: F) -> F:
         @wraps(func)
@@ -74,7 +67,6 @@ def validation_exception_handler(
     request: Request,
     exc: RequestValidationError,
 ) -> JSONResponse:
-    """Handle ``422`` validation errors across the entire application."""
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={"detail": exc.errors()},
@@ -85,10 +77,6 @@ def general_exception_handler(
     request: Request,
     exc: Exception,
 ) -> JSONResponse:
-    """Catch-all handler for unexpected exceptions.
-
-    Logs a traceback and returns a generic 500 response.
-    """
     logger.exception("Unhandled exception: %s", exc)
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

@@ -1,3 +1,11 @@
+"""
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 try:
     from ._env import ensure_test_env
 except ImportError:
@@ -17,19 +25,15 @@ def _make_alert(**kwargs) -> Alert:
         "fingerprint": "fp-123",
     }
     base.update(kwargs)
-    return Alert(**base)  # type: ignore[arg-type]
+    return Alert(**base) 
 
 
 def test_get_label_and_annotation_and_alert_text():
     a = _make_alert()
     assert notification_payloads.get_label(a, "alertname") == "DiskFull"
     assert notification_payloads.get_annotation(a, "summary") == "disk almost full"
-
-    # both summary and description present and different
     txt = notification_payloads.get_alert_text(a)
     assert "disk almost full" in txt and "root partition > 90%" in txt
-
-    # equal summary/description should return single value
     a2 = _make_alert(annotations={"summary": "same", "description": "same"})
     assert notification_payloads.get_alert_text(a2) == "same"
 
@@ -48,8 +52,6 @@ def test_format_alert_body_and_build_payloads():
 
     teams = notification_payloads.build_teams_payload(a, "resolved")
     assert teams["themeColor"] == "00FF00"
-
-    # warning severity is still firing, so color uses firing rule ('danger')
     aw = _make_alert(labels={"alertname": "X", "severity": "warning"})
     s = notification_payloads.build_slack_payload(aw, "firing")
     assert s["attachments"][0]["color"] == "danger"

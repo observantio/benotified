@@ -86,7 +86,7 @@ class AlertManagerService:
         if not isinstance(parsed, dict):
             raise ValueError(LABELS_JSON_ERROR)
         return {str(k): str(v) for k, v in parsed.items()}
-    
+
     def parse_filter_labels_or_none(self, filter_labels: Optional[str]) -> Optional[Dict[str, str]]:
         if not filter_labels:
             return None

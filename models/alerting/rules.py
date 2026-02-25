@@ -33,7 +33,6 @@ DESC_GROUP_IDS_SHARE_WITH = "Group IDs to share with"
 
 
 class RuleSeverity(str, Enum):
-    """Alert rule severity levels."""
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -41,7 +40,6 @@ class RuleSeverity(str, Enum):
 
 
 class AlertRule(BaseModel):
-    """Alert rule configuration."""
     id: Optional[str] = Field(None, description=DESC_UNIQUE_IDENTIFIER)
     org_id: Optional[str] = Field(None, alias="orgId", description="Organization ID / API key scoped to this rule")
     name: str = Field(..., description=DESC_RULE_NAME)
@@ -58,14 +56,13 @@ class AlertRule(BaseModel):
     notification_channels: List[str] = Field(default_factory=list, alias="notificationChannels", description="Notification channel IDs for this rule")
     visibility: Visibility = Field(Visibility.PRIVATE, description=DESC_VISIBILITY_SCOPE)
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_RULE_SHARED_WITH)
-    
+
     class Config:
         use_enum_values = True
         populate_by_name = True
 
 
 class AlertRuleCreate(BaseModel):
-    """Create an alert rule."""
     org_id: Optional[str] = Field(None, alias="orgId", description="Optional org_id (API key) to scope this rule to")
     name: str = Field(..., min_length=1, max_length=100, description=DESC_RULE_NAME)
     expr: str = Field(..., alias="expression", description=DESC_RULE_EXPRESSION)
@@ -80,14 +77,13 @@ class AlertRuleCreate(BaseModel):
     notification_channels: List[str] = Field(default_factory=list, alias="notificationChannels", description="Notification channel IDs for this rule")
     visibility: Visibility = Field(Visibility.PRIVATE, description=DESC_VISIBILITY_SCOPE)
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_SHARE_WITH)
-    
+
     class Config:
         use_enum_values = True
         populate_by_name = True
 
 
 class RuleGroup(BaseModel):
-    """Alert rule group."""
     name: str = Field(..., description=DESC_RULE_GROUP_NAME)
     interval: Optional[str] = Field(None, description=DESC_RULE_GROUP_INTERVAL)
     rules: List[AlertRule] = Field(default_factory=list, description=DESC_RULE_GROUP_RULES)

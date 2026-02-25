@@ -16,16 +16,15 @@ from typing import Dict, List, Optional, Protocol
 
 
 class SecretProvider(Protocol):
-    def get(self, key: str) -> Optional[str]: ...
 
-    def get_many(self, keys: List[str]) -> Dict[str, Optional[str]]: ...
+    def get(self, key: str) -> Optional[str]:
+        ...
+
+    def get_many(self, keys: List[str]) -> Dict[str, Optional[str]]:
+        ...
 
 
 class EnvSecretProvider:
-    """Simple provider that reads from process environment.
-
-    Treats explicitly-set empty strings as absent (returns None).
-    """
 
     def get(self, key: str) -> Optional[str]:
         val = os.getenv(key)

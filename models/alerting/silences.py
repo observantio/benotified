@@ -31,7 +31,6 @@ DESC_GROUP_IDS_SHARE_WITH = "Group IDs to share with"
 
 
 class Visibility(str, Enum):
-    """Visibility/sharing scope for resources."""
     PRIVATE = "private"  # Only visible to creator
     GROUP = "group"      # Visible to specified groups
     TENANT = "tenant"    # Visible to all users in tenant
@@ -39,18 +38,16 @@ class Visibility(str, Enum):
 
 
 class Matcher(BaseModel):
-    """Alert matcher."""
     name: str = Field(..., description=DESC_LABEL_NAME_MATCH)
     value: str = Field(..., description=DESC_VALUE_MATCH_AGAINST)
     is_regex: bool = Field(False, alias="isRegex", description=DESC_VALUE_IS_REGEX)
     is_equal: bool = Field(True, alias="isEqual", description=DESC_MATCH_EQUAL_VALUES)
-    
+
     class Config:
         populate_by_name = True
 
 
 class Silence(BaseModel):
-    """Silence representation."""
     id: Optional[str] = Field(None, description=DESC_UNIQUE_IDENTIFIER_SILENCE)
     matchers: List[Matcher] = Field(..., description=DESC_MATCHERS_DEFINE_SILENCE)
     starts_at: str = Field(..., alias="startsAt", description=DESC_TIME_SILENCE_STARTS)
@@ -60,26 +57,24 @@ class Silence(BaseModel):
     status: Optional[Dict[str, str]] = Field(None, description=DESC_CURRENT_STATUS_SILENCE)
     visibility: Optional[Visibility] = Field(None, description=DESC_VISIBILITY_SCOPE)
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_SILENCE_SHARED_WITH)
-    
+
     class Config:
         populate_by_name = True
         use_enum_values = True
 
 
 class SilenceCreate(BaseModel):
-    """Create a new silence."""
     matchers: List[Matcher] = Field(..., description=DESC_MATCHERS_DEFINE_SILENCE)
     starts_at: str = Field(..., alias="startsAt", description=DESC_TIME_SILENCE_STARTS)
     ends_at: str = Field(..., alias="endsAt", description=DESC_TIME_SILENCE_ENDS)
     created_by: str = Field(..., alias="createdBy", description=DESC_USER_CREATED_SILENCE)
     comment: str = Field(..., description=DESC_COMMENT_EXPLAINING_SILENCE)
-    
+
     class Config:
         populate_by_name = True
 
 
 class SilenceCreateRequest(BaseModel):
-    """Client-facing silence creation payload (created_by is derived from auth)."""
     matchers: List[Matcher] = Field(..., description=DESC_MATCHERS_DEFINE_SILENCE)
     starts_at: str = Field(..., alias="startsAt", description=DESC_TIME_SILENCE_STARTS)
     ends_at: str = Field(..., alias="endsAt", description=DESC_TIME_SILENCE_ENDS)

@@ -25,26 +25,24 @@ DESC_ALERTMANAGER_CLUSTER_STATUS = "Cluster status information"
 
 
 class Receiver(BaseModel):
-    """AlertManager receiver configuration."""
     name: str = Field(..., description=DESC_RECEIVER_NAME)
     email_configs: List[Dict[str, Any]] = Field(default_factory=list, alias="emailConfigs", description=DESC_RECEIVER_EMAIL_CONFIGS)
     slack_configs: List[Dict[str, Any]] = Field(default_factory=list, alias="slackConfigs", description=DESC_RECEIVER_SLACK_CONFIGS)
     webhook_configs: List[Dict[str, Any]] = Field(default_factory=list, alias="webhookConfigs", description=DESC_RECEIVER_WEBHOOK_CONFIGS)
     pagerduty_configs: List[Dict[str, Any]] = Field(default_factory=list, alias="pagerdutyConfigs", description=DESC_RECEIVER_PAGERDUTY_CONFIGS)
     msteams_configs: List[Dict[str, Any]] = Field(default_factory=list, alias="msteamsConfigs", description=DESC_RECEIVER_TEAMS_CONFIGS)
-    
+
     class Config:
         use_enum_values = True
         populate_by_name = True
 
 
 class AlertManagerStatus(BaseModel):
-    """AlertManager status information."""
     version: str = Field(..., description=DESC_ALERTMANAGER_VERSION)
     uptime: str = Field(..., description=DESC_ALERTMANAGER_UPTIME)
     config_hash: str = Field(..., alias="configHash", description=DESC_ALERTMANAGER_CONFIG_HASH)
     cluster: Dict[str, Any] = Field(..., description=DESC_ALERTMANAGER_CLUSTER_STATUS)
-    
+
     class Config:
         use_enum_values = True
         populate_by_name = True

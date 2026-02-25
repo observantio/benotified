@@ -26,11 +26,6 @@ _SessionLocal: Optional[sessionmaker] = None
 
 
 def ensure_database_exists(database_url: str) -> None:
-    """Create target PostgreSQL database if missing.
-
-    Uses the same host/user/password as the target URL and connects to
-    the maintenance database (`postgres`) to issue CREATE DATABASE.
-    """
     url = make_url(database_url)
     db_name = url.database
     if not db_name:

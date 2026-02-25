@@ -346,8 +346,6 @@ async def patch_incident(
     return updated
 
 
-
-
 @router.post("/rules/import")
 @handle_route_errors()
 async def import_alert_rules(
@@ -738,8 +736,6 @@ async def create_incident_jira(
 
     logger.info("Created Jira issue %s for incident %s", key, incident_id)
     return updated
-
-
 
 
 def _resolve_incident_jira_credentials(incident, tenant_id: str, current_user: TokenData):

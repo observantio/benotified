@@ -1,3 +1,11 @@
+"""
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 try:
     from ._env import ensure_test_env
 except ImportError:
@@ -19,7 +27,6 @@ def test_build_smtp_message():
 
 
 def test_send_via_sendgrid_and_resend_success_and_failure(monkeypatch):
-    # allow extra kwargs (e.g. retry_on_status) to avoid signature mismatch
     async def ok_post(client, url, json=None, headers=None, params=None, **kwargs):
         return httpx.Response(202)
 

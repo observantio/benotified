@@ -77,7 +77,6 @@ def _is_production_env() -> bool:
     return _env_name() in {"prod", "production"}
 
 class Config:
-    """Application configuration from environment variables."""
 
     ALLOWED_JWT_ALGORITHMS = {"RS256", "ES256"}
     EXAMPLE_DATABASE_URL = "postgresql://beobservant:changeme123@localhost:5432/beobservant"
@@ -287,12 +286,6 @@ class Config:
         self.validate()
 
     def _load_vault_secrets(self) -> None:
-        """Load configured secrets from Vault (when VAULT_ENABLED=true).
-
-        This is intentionally opt-in. When Vault is enabled we attempt to
-        resolve a small set of critical secrets and override the corresponding
-        `self.` attributes **before** validation runs.
-        """
         if not self.VAULT_ENABLED:
             return
         from services.secrets.provider import EnvSecretProvider, SecretProvider
@@ -347,7 +340,6 @@ class Config:
                 logger.info("Loaded secret %s from Vault", sk)
 
     def get_secret(self, key: str) -> Optional[str]:
-        """Runtime secret lookup (Vault-aware)."""
         val = getattr(self, key, None)
         if val:
             return val
@@ -450,19 +442,18 @@ class Config:
 
 
 class Constants:
-    """Application constants."""
     APP_NAME: str = "Be Observant with Your Infrastructure"
     APP_VERSION: str = "1.0.0"
     APP_DESCRIPTION: str = (
         "Unified API for managing Tempo, Loki, AlertManager, and Grafana"
     )
-    
+
     # HTTP status messages
     STATUS_HEALTHY: str = "Healthy"
     STATUS_SUCCESS: str = "Success"
     STATUS_ERROR: str = "Error"
-    
-    
+
+
     # Service names
     SERVICE_TEMPO: str = "Tempo"
     SERVICE_LOKI: str = "Loki"

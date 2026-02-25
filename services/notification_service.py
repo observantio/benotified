@@ -31,8 +31,7 @@ logger = logging.getLogger(__name__)
 NO_VALUE = "(none)"
 
 class NotificationService:
-    """Service for sending notifications through various channels."""
-    
+
     def __init__(self):
         self.timeout = config.DEFAULT_TIMEOUT
         self._client = create_async_client(self.timeout)
@@ -55,13 +54,10 @@ class NotificationService:
         return notification_validators.validate_channel_config(channel_type, channel_config)
 
 
-
     async def _post_with_retry(self, url: str, json: dict | None = None, headers: dict | None = None, params: dict | None = None) -> httpx.Response:
-        """Delegate HTTP POST with retry to module-level transport helper."""
         return await notification_transport.post_with_retry(self._client, url, json=json, headers=headers, params=params)
 
     async def _send_smtp_with_retry(self, message: EmailMessage, hostname: str, port: int, username: str | None = None, password: str | None = None, start_tls: bool = False, use_tls: bool = False):
-        """Delegate SMTP send with retry to module-level transport helper."""
         return await notification_transport.send_smtp_with_retry(
             message,
             hostname=hostname,
@@ -79,20 +75,10 @@ class NotificationService:
         alert: Alert,
         action: str = "firing"
     ) -> bool:
-        """Send notification through the specified channel.
-        
-        Args:
-            channel: Notification channel configuration
-            alert: Alert to send
-            action: Alert action (firing or resolved)
-            
-        Returns:
-            True if notification was sent successfully
-        """
         if not channel.enabled:
             logger.info(f"Channel {channel.name} is disabled, skipping notification")
             return False
-        
+
         try:
             async_senders = {
                 ChannelType.SLACK: self._send_slack,
@@ -119,7 +105,6 @@ class NotificationService:
         incident_severity: str,
         actor: str,
     ) -> bool:
-        """Best-effort assignment email using optional INCIDENT_ASSIGNMENT_SMTP_* env vars."""
         enabled = str(config.get_secret("INCIDENT_ASSIGNMENT_EMAIL_ENABLED") or "false").strip().lower() in {"1", "true", "yes", "on"}
         if not enabled:
             return False
@@ -180,10 +165,6 @@ class NotificationService:
         full_name: Optional[str] = None,
         login_url: Optional[str] = None,
     ) -> bool:
-        """Best-effort new-user welcome email.
-
-        Sends only when USER_WELCOME_EMAIL_ENABLED and USER_WELCOME_SMTP_HOST are configured.
-        """
         enabled = str(config.get_secret("USER_WELCOME_EMAIL_ENABLED") or "false").strip().lower() in {"1", "true", "yes", "on"}
         if not enabled:
             return False
@@ -238,25 +219,8 @@ class NotificationService:
         except Exception as exc:
             logger.warning("Failed to send user welcome email to %s: %s", recipient_email, exc)
             return False
-    
-    async def _send_email(self, channel: NotificationChannel, alert: Alert, action: str) -> bool:
-        """Send email notification via SMTP or API provider.
 
-        Expected channel.config keys (common names accepted):
-        - to (comma-separated string or single address)
-        - email_provider / emailProvider: smtp | sendgrid | resend
-        - smtp_host / smtpHost
-        - smtp_port / smtpPort
-        - smtp_username / smtpUsername
-        - smtp_password / smtpPassword
-        - smtp_api_key / smtpApiKey (SMTP API-key auth)
-        - smtp_auth_type / smtpAuthType: password | api_key | none
-        - smtp_from / smtpFrom / from
-        - smtp_starttls / smtpStartTLS (boolean)
-        - smtp_use_ssl / smtpUseSSL (boolean)
-        - sendgrid_api_key / sendgridApiKey / api_key
-        - resend_api_key / resendApiKey / api_key
-        """
+    async def _send_email(self, channel: NotificationChannel, alert: Alert, action: str) -> bool:
         channel_config = channel.config or {}
 
         to_field = channel_config.get('to') or channel_config.get('recipient')
@@ -348,30 +312,25 @@ class NotificationService:
             return True
         logger.error("Failed to send email for channel %s after retries", channel.name)
         return False
-    
+
     async def _send_slack(self, channel: NotificationChannel, alert: Alert, action: str) -> bool:
-        """Delegate Slack sending to `services.notification.senders`."""
         channel_config = (channel.config or {})
         return await notification_senders.send_slack(self._client, channel_config, alert, action)
-    
+
     async def _send_teams(self, channel: NotificationChannel, alert: Alert, action: str) -> bool:
-        """Delegate Teams sending to `services.notification.senders`."""
         channel_config = (channel.config or {})
         return await notification_senders.send_teams(self._client, channel_config, alert, action)
-    
+
     async def _send_webhook(self, channel: NotificationChannel, alert: Alert, action: str) -> bool:
-        """Delegate webhook sending to `services.notification.senders`."""
         channel_config = (channel.config or {})
         return await notification_senders.send_webhook(self._client, channel_config, alert, action)
-    
+
     async def _send_pagerduty(self, channel: NotificationChannel, alert: Alert, action: str) -> bool:
-        """Delegate PagerDuty sending to `services.notification.senders`."""
         channel_config = (channel.config or {})
         return await notification_senders.send_pagerduty(self._client, channel_config, alert, action)
 
-    
+
     def _format_alert_body(self, alert: Alert, action: str) -> str:
-        """Delegate formatting to `services.notification.payloads`."""
         return notification_payloads.format_alert_body(alert, action)
 
     def _get_label(self, alert: Alert, key: str, default: str = "") -> str:

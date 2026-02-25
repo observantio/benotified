@@ -32,7 +32,6 @@ def _is_transient_http(exc: Exception, retry_on_status: frozenset[int]) -> bool:
 
 
 def is_transient_http_exception(exc: Exception, retry_on_status: frozenset[int] | set[int] = _DEFAULT_RETRY_ON_STATUS) -> bool:
-    """Compatibility helper used by tests and callers expecting legacy API."""
     return _is_transient_http(exc, frozenset(retry_on_status))
 
 

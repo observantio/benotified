@@ -74,5 +74,4 @@ class AlertIncidentUpdateRequest(BaseModel):
     jira_ticket_key: Optional[str] = Field(None, alias="jiraTicketKey")
     jira_ticket_url: Optional[str] = Field(None, alias="jiraTicketUrl")
     jira_integration_id: Optional[str] = Field(None, alias="jiraIntegrationId")
-    # Allow clients to toggle hiding after resolve
     hide_when_resolved: Optional[bool] = Field(None, alias="hideWhenResolved")

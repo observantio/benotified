@@ -30,24 +30,21 @@ DESC_LIST_ALERTS_GROUP = "List of alerts in this group"
 
 
 class AlertState(str, Enum):
-    """Alert state enum."""
     UNPROCESSED = "unprocessed"
     ACTIVE = "active"
     SUPPRESSED = "suppressed"
 
 
 class AlertStatus(BaseModel):
-    """Alert status information."""
     state: AlertState = Field(..., description=DESC_CURRENT_STATE_ALERT)
     silenced_by: List[str] = Field(default_factory=list, alias="silencedBy", description=DESC_LIST_SILENCES_SILENCE_ALERT)
     inhibited_by: List[str] = Field(default_factory=list, alias="inhibitedBy", description=DESC_LIST_ALERTS_INHIBIT_ALERT)
-    
+
     class Config:
         populate_by_name = True
 
 
 class Alert(BaseModel):
-    """Alert representation."""
     labels: Dict[str, str] = Field(..., description=DESC_KEY_VALUE_PAIRS_IDENTIFY_ALERT)
     annotations: Dict[str, str] = Field(default_factory=dict, description=DESC_ADDITIONAL_INFO_ALERT)
     starts_at: str = Field(..., alias="startsAt", description=DESC_TIME_ALERT_STARTED_FIRING)
@@ -56,13 +53,12 @@ class Alert(BaseModel):
     status: AlertStatus = Field(..., description=DESC_CURRENT_STATUS_ALERT)
     receivers: Optional[List[Union[str, Dict[str, Any]]]] = Field(default_factory=list, description=DESC_LIST_RECEIVERS_ALERT)
     fingerprint: Optional[str] = Field(None, description=DESC_UNIQUE_IDENTIFIER_ALERT)
-    
+
     class Config:
         populate_by_name = True
 
 
 class AlertGroup(BaseModel):
-    """Grouped alerts."""
     labels: Dict[str, str] = Field(..., description=DESC_COMMON_LABELS_GROUP)
     receiver: str = Field(..., description=DESC_RECEIVER_HANDLE_ALERTS)
     alerts: List[Alert] = Field(..., description=DESC_LIST_ALERTS_GROUP)

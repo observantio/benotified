@@ -41,11 +41,6 @@ def _uuid() -> str:
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
-
-# ---------------------------------------------------------------------------
-# Association tables
-# ---------------------------------------------------------------------------
-
 user_groups = Table(
     "user_groups",
     Base.metadata,
@@ -109,10 +104,6 @@ datasource_groups = Table(
     Index("idx_datasource_groups_group",      "group_id"),
 )
 
-
-# ---------------------------------------------------------------------------
-# Models
-# ---------------------------------------------------------------------------
 
 class Tenant(Base):
     __tablename__ = "tenants"
@@ -238,11 +229,6 @@ class ApiKeyShare(Base):
 
 
 class PurgedSilence(Base):
-    """Records silences purged (hidden) by the application.
-
-    AlertManager persists expired silences; storing purged IDs here lets the
-    API exclude them from results without touching AlertManager state.
-    """
     __tablename__ = "purged_silences"
 
     id:         Mapped[str]           = mapped_column(String,   primary_key=True)
