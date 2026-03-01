@@ -9,7 +9,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 from typing import Dict, List, Optional, Any, Union
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from enum import Enum
 
 # Description constants
@@ -40,8 +40,7 @@ class AlertStatus(BaseModel):
     silenced_by: List[str] = Field(default_factory=list, alias="silencedBy", description=DESC_LIST_SILENCES_SILENCE_ALERT)
     inhibited_by: List[str] = Field(default_factory=list, alias="inhibitedBy", description=DESC_LIST_ALERTS_INHIBIT_ALERT)
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class Alert(BaseModel):
@@ -54,8 +53,7 @@ class Alert(BaseModel):
     receivers: Optional[List[Union[str, Dict[str, Any]]]] = Field(default_factory=list, description=DESC_LIST_RECEIVERS_ALERT)
     fingerprint: Optional[str] = Field(None, description=DESC_UNIQUE_IDENTIFIER_ALERT)
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class AlertGroup(BaseModel):

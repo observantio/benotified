@@ -9,7 +9,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from enum import Enum
 
 from .silences import Visibility
@@ -57,9 +57,7 @@ class AlertRule(BaseModel):
     visibility: Visibility = Field(Visibility.PRIVATE, description=DESC_VISIBILITY_SCOPE)
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_RULE_SHARED_WITH)
 
-    class Config:
-        use_enum_values = True
-        populate_by_name = True
+    model_config = ConfigDict(use_enum_values=True, populate_by_name=True)
 
 
 class AlertRuleCreate(BaseModel):
@@ -78,9 +76,7 @@ class AlertRuleCreate(BaseModel):
     visibility: Visibility = Field(Visibility.PRIVATE, description=DESC_VISIBILITY_SCOPE)
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_SHARE_WITH)
 
-    class Config:
-        use_enum_values = True
-        populate_by_name = True
+    model_config = ConfigDict(use_enum_values=True, populate_by_name=True)
 
 
 class RuleGroup(BaseModel):

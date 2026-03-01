@@ -33,7 +33,6 @@ _FK_TENANTS  = "tenants.id"
 _CASCADE     = "all, delete-orphan"
 _SET_NULL    = "SET NULL"
 
-
 def _uuid() -> str:
     return str(uuid.uuid4())
 
@@ -335,98 +334,4 @@ class NotificationChannel(Base):
         Index("idx_notification_channels_tenant_enabled", "tenant_id", "enabled"),
         Index("idx_notification_channels_type",           "type"),
         Index("idx_notification_channels_visibility",     "visibility"),
-    )
-
-
-class AuditLog(Base):
-    __tablename__ = "audit_logs"
-
-    id:            Mapped[int]                  = mapped_column(Integer,     primary_key=True, autoincrement=True)
-    tenant_id:     Mapped[Optional[str]]        = mapped_column(String,      ForeignKey(_FK_TENANTS, ondelete="CASCADE"), index=True)
-    user_id:       Mapped[Optional[str]]        = mapped_column(String,      ForeignKey(_FK_USERS,   ondelete=_SET_NULL), index=True)
-    action:        Mapped[str]                  = mapped_column(String(100), nullable=False, index=True)
-    resource_type: Mapped[str]                  = mapped_column(String(50),  nullable=False, index=True)
-    resource_id:   Mapped[Optional[str]]        = mapped_column(String,      index=True)
-    details:       Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON)
-    ip_address:    Mapped[Optional[str]]        = mapped_column(String(45))
-    user_agent:    Mapped[Optional[str]]        = mapped_column(Text)
-    created_at:    Mapped[datetime]             = mapped_column(DateTime,    default=_now, nullable=False, index=True)
-
-    __table_args__ = (
-        Index("idx_audit_logs_tenant_created", "tenant_id", "created_at"),
-        Index("idx_audit_logs_user_created",   "user_id",   "created_at"),
-        Index("idx_audit_logs_action",         "action"),
-    )
-
-
-@event.listens_for(AuditLog.__table__, "after_create")
-def _make_audit_logs_immutable(target, connection, **kw) -> None:
-    if connection.dialect.name != "postgresql":
-        return
-    connection.execute(text("""
-        CREATE OR REPLACE FUNCTION prevent_audit_log_mutation()
-        RETURNS trigger AS $$
-        BEGIN
-            RAISE EXCEPTION 'audit_logs are immutable';
-        END;
-        $$ LANGUAGE plpgsql;
-    """))
-    connection.execute(text("""
-        DROP TRIGGER IF EXISTS trg_audit_logs_immutable ON audit_logs;
-        CREATE TRIGGER trg_audit_logs_immutable
-        BEFORE UPDATE OR DELETE ON audit_logs
-        FOR EACH ROW EXECUTE FUNCTION prevent_audit_log_mutation();
-    """))
-
-
-class GrafanaDashboard(Base):
-    __tablename__ = "grafana_dashboards"
-
-    id:          Mapped[str]           = mapped_column(String,      primary_key=True, default=_uuid)
-    tenant_id:   Mapped[str]           = mapped_column(String,      ForeignKey(_FK_TENANTS, ondelete="CASCADE"), nullable=False, index=True)
-    created_by:  Mapped[Optional[str]] = mapped_column(String,      ForeignKey(_FK_USERS,   ondelete=_SET_NULL))
-    grafana_uid: Mapped[str]           = mapped_column(String(100), nullable=False, unique=True, index=True)
-    grafana_id:  Mapped[Optional[int]] = mapped_column(Integer)
-    title:       Mapped[str]           = mapped_column(String(200), nullable=False)
-    folder_uid:  Mapped[Optional[str]] = mapped_column(String(100))
-    visibility:  Mapped[str]           = mapped_column(String(20),  nullable=False, default="private", index=True)
-    tags:        Mapped[List[Any]]     = mapped_column(JSON,        default=list)
-    is_hidden:   Mapped[bool]          = mapped_column(Boolean,     default=False, nullable=False, index=True)
-    hidden_by:   Mapped[List[Any]]     = mapped_column(JSON,        default=list)
-    created_at:  Mapped[datetime]      = mapped_column(DateTime,    default=_now, nullable=False)
-    updated_at:  Mapped[datetime]      = mapped_column(DateTime,    default=_now, onupdate=_now, nullable=False)
-
-    tenant:        Mapped["Tenant"]         = relationship("Tenant")
-    creator:       Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by])
-    shared_groups: Mapped[List["Group"]]    = relationship("Group", secondary=dashboard_groups)
-
-    __table_args__ = (
-        Index("idx_grafana_dashboards_tenant",     "tenant_id"),
-        Index("idx_grafana_dashboards_visibility", "visibility"),
-    )
-
-
-class GrafanaDatasource(Base):
-    __tablename__ = "grafana_datasources"
-
-    id:          Mapped[str]           = mapped_column(String,      primary_key=True, default=_uuid)
-    tenant_id:   Mapped[str]           = mapped_column(String,      ForeignKey(_FK_TENANTS, ondelete="CASCADE"), nullable=False, index=True)
-    created_by:  Mapped[Optional[str]] = mapped_column(String,      ForeignKey(_FK_USERS,   ondelete=_SET_NULL))
-    grafana_uid: Mapped[str]           = mapped_column(String(100), nullable=False, unique=True, index=True)
-    grafana_id:  Mapped[Optional[int]] = mapped_column(Integer)
-    name:        Mapped[str]           = mapped_column(String(200), nullable=False)
-    type:        Mapped[str]           = mapped_column(String(100), nullable=False)
-    visibility:  Mapped[str]           = mapped_column(String(20),  nullable=False, default="private", index=True)
-    is_hidden:   Mapped[bool]          = mapped_column(Boolean,     default=False, nullable=False, index=True)
-    hidden_by:   Mapped[List[Any]]     = mapped_column(JSON,        default=list)
-    created_at:  Mapped[datetime]      = mapped_column(DateTime,    default=_now, nullable=False)
-    updated_at:  Mapped[datetime]      = mapped_column(DateTime,    default=_now, onupdate=_now, nullable=False)
-
-    tenant:        Mapped["Tenant"]         = relationship("Tenant")
-    creator:       Mapped[Optional["User"]] = relationship("User", foreign_keys=[created_by])
-    shared_groups: Mapped[List["Group"]]    = relationship("Group", secondary=datasource_groups)
-
-    __table_args__ = (
-        Index("idx_grafana_datasources_tenant",     "tenant_id"),
-        Index("idx_grafana_datasources_visibility", "visibility"),
     )

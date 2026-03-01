@@ -133,12 +133,6 @@ def init_db() -> None:
     if _engine is None:
         raise RuntimeError("Database not initialized. Call init_database() first.")
 
-    from config import config
-
-    if not config.DB_AUTO_CREATE_SCHEMA:
-        logger.info("Skipping schema creation: DB_AUTO_CREATE_SCHEMA=false")
-        return
-
     logger.info("Initializing database tables...")
     Base.metadata.create_all(bind=_engine)
     logger.info("Database tables created successfully.")

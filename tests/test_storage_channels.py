@@ -14,7 +14,6 @@ ensure_test_env()
 
 import json
 from cryptography.fernet import Fernet
-
 from config import config
 from services.common import encryption as encryption_module
 from services.storage.channels import ChannelStorageService
@@ -47,10 +46,8 @@ def test_create_channel_stores_encrypted_and_owner_sees_config(monkeypatch):
         config.DATA_ENCRYPTION_KEY = Fernet.generate_key().decode()
         ch_in = NotificationChannelCreate(name="c1", type=ChannelType.SLACK, config={"webhook_url": "https://x"}, enabled=True, visibility="private")
         created = svc.create_notification_channel(ch_in, tenant_id="t-1", user_id="owner", group_ids=None)
-        # owner should see full config
         assert created.config == {"webhook_url": "https://x"}
 
-        # DB should store encrypted payload
         with get_db_session() as db:
             db_ch = db.query(NotificationChannelDB).filter(NotificationChannelDB.id == created.id).first()
             assert db_ch is not None
@@ -65,15 +62,10 @@ import pytest
 @pytest.mark.skipif(not __import__('database', fromlist=['']).connection_test(), reason="DB not available")
 def test_get_notification_channel_access_control():
     svc = ChannelStorageService(None)
-    # create channel as owner
     ch_in = NotificationChannelCreate(name="c2", type=ChannelType.SLACK, config={"webhook_url": "https://x"}, enabled=True, visibility="private")
     created = svc.create_notification_channel(ch_in, tenant_id="t-2", user_id="owner2", group_ids=None)
-
-    # non-owner should not be able to fetch private channel
     fetched = svc.get_notification_channel(created.id, tenant_id="t-2", user_id="someone_else", group_ids=None)
     assert fetched is None
-
-    # owner can fetch and sees config
     fetched_owner = svc.get_notification_channel(created.id, tenant_id="t-2", user_id="owner2", group_ids=None)
     assert fetched_owner is not None
     assert fetched_owner.config == {"webhook_url": "https://x"}

@@ -12,7 +12,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class IncidentStatus(str, Enum):
@@ -31,8 +31,7 @@ class IncidentNote(BaseModel):
     text: str
     created_at: datetime = Field(..., alias="createdAt")
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class AlertIncident(BaseModel):
@@ -60,9 +59,7 @@ class AlertIncident(BaseModel):
     # When true the incident will be hidden from default listings once resolved
     hide_when_resolved: bool = Field(False, alias="hideWhenResolved")
 
-    class Config:
-        use_enum_values = True
-        populate_by_name = True
+    model_config = ConfigDict(use_enum_values=True, populate_by_name=True)
 
 
 class AlertIncidentUpdateRequest(BaseModel):

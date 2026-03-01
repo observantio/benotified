@@ -10,7 +10,6 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 
 from typing import List, Optional, Tuple
-
 from models.alerting.rules import AlertRule, AlertRuleCreate
 from db_models import AlertRule as AlertRuleDB
 

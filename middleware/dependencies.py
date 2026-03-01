@@ -12,8 +12,11 @@ from __future__ import annotations
 import logging
 import re
 import secrets
+import threading
+import time
 from datetime import datetime, timezone
 from dataclasses import dataclass
+from ipaddress import ip_address, ip_network
 from typing import Optional
 
 import jwt
@@ -24,11 +27,13 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from config import config
 from database import get_db_session
 from db_models import Group, Tenant, User
-from middleware.rate_limit import enforce_ip_rate_limit
+from middleware.rate_limit import enforce_ip_rate_limit, client_ip
 from models.access.auth_models import Permission, TokenData
 
 logger = logging.getLogger(__name__)
 security = HTTPBearer(auto_error=False)
+_jti_seen_lock = threading.Lock()
+_jti_seen_cache: dict[str, float] = {}
 
 
 @dataclass
@@ -48,6 +53,10 @@ def _normalize_shadow_username(raw: str, user_id: str) -> str:
     suffix = re.sub(r"[^a-z0-9]", "", user_id.lower())[:8] or "shadow"
     candidate = f"{value[:32]}-{suffix}"
     return candidate[:50]
+
+
+def _shadow_password_placeholder(user_id: str) -> str:
+    return f"external-context::{user_id}"
 
 
 def _ensure_shadow_context(current_user: TokenData) -> None:
@@ -85,7 +94,7 @@ def _ensure_shadow_context(current_user: TokenData) -> None:
                 tenant_id=tenant_id,
                 username=username,
                 email=email,
-                hashed_password="external-context",
+                hashed_password=_shadow_password_placeholder(user_id),
                 full_name=current_user.username or username,
                 org_id=current_user.org_id or tenant_id,
                 role=role_text if role_text in {"admin", "user", "viewer"} else "user",
@@ -164,14 +173,34 @@ def _verify_context_token(token: str) -> TokenData:
     if not key:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Context verification key not configured")
 
-    algorithms = [a.strip() for a in str(getattr(config, "BENOTIFIED_CONTEXT_ALGORITHMS", "HS256")).split(",") if a.strip()]
+    algorithm = str(getattr(config, "BENOTIFIED_CONTEXT_ALGORITHM", "HS256")).strip().upper()
     audience = config.get_secret("BENOTIFIED_CONTEXT_AUDIENCE") or "benotified"
     issuer = config.get_secret("BENOTIFIED_CONTEXT_ISSUER") or "beobservant-main"
 
     try:
-        payload = jwt.decode(token, key, algorithms=algorithms, audience=audience, issuer=issuer)
+        payload = jwt.decode(
+            token,
+            key,
+            algorithms=[algorithm],
+            audience=audience,
+            issuer=issuer,
+            options={"require": ["exp", "iat", "iss", "aud", "jti"]},
+        )
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid context token") from exc
+
+    try:
+        iat = int(payload.get("iat"))
+        exp = int(payload.get("exp"))
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid context token claims") from exc
+    if exp <= iat:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid context token lifetime")
+
+    jti = str(payload.get("jti") or "").strip()
+    if not jti:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing context token jti")
+    _assert_jti_not_replayed(jti)
 
     try:
         claims = TokenData(
@@ -191,6 +220,18 @@ def _verify_context_token(token: str) -> TokenData:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing required context claims")
 
     return claims
+
+
+def _assert_jti_not_replayed(jti: str) -> None:
+    now = time.monotonic()
+    ttl = int(getattr(config, "BENOTIFIED_CONTEXT_REPLAY_TTL_SECONDS", 180) or 180)
+    with _jti_seen_lock:
+        stale = [token_id for token_id, ts in _jti_seen_cache.items() if now - ts > ttl]
+        for token_id in stale:
+            _jti_seen_cache.pop(token_id, None)
+        if jti in _jti_seen_cache:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Replayed context token")
+        _jti_seen_cache[jti] = now
 
 
 def get_current_user(
@@ -269,9 +310,56 @@ def enforce_public_endpoint_security(
     allowlist: str | None = None,
     fallback_mode: str | None = None,
 ) -> None:
-    # internal service only: still keep IP-based rate limiting for defense-in-depth.
-    _ = allowlist
+    resolved_ip = client_ip(request)
+    if config.REQUIRE_CLIENT_IP_FOR_PUBLIC_ENDPOINTS and resolved_ip == "unknown":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied for {scope}: client IP resolution failed",
+        )
     enforce_ip_rate_limit(request, scope=scope, limit=limit, window_seconds=window_seconds, fallback_mode=fallback_mode)
+    _enforce_ip_allowlist(request, allowlist, scope=scope)
+
+
+def _enforce_ip_allowlist(request: Request, allowlist: str | None, *, scope: str) -> None:
+    if allowlist is None:
+        return
+    networks = []
+    for raw in allowlist.split(","):
+        entry = raw.strip()
+        if not entry:
+            continue
+        try:
+            if "/" in entry:
+                networks.append(ip_network(entry, strict=False))
+            else:
+                addr = ip_address(entry)
+                suffix = "32" if addr.version == 4 else "128"
+                networks.append(ip_network(f"{entry}/{suffix}", strict=False))
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Access denied for {scope}: invalid allowlist configuration",
+            )
+    if not networks:
+        if config.ALLOWLIST_FAIL_OPEN:
+            return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied for {scope}: source IP not allowed",
+        )
+    ip = client_ip(request)
+    try:
+        addr = ip_address(ip)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied for {scope}: invalid client IP",
+        )
+    if not any(addr in net for net in networks):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied for {scope}: source IP not allowed",
+        )
 
 
 def enforce_header_token(

@@ -90,17 +90,14 @@ def test_send_email_delegates_to_email_providers(monkeypatch):
     monkeypatch.setattr(notification_email, "send_via_smtp", fake_send_via_smtp)
 
     svc = NotificationService()
-    # sendgrid
     ch1 = NotificationChannel(name="e1", type=ChannelType.EMAIL, config={"to": "a@b.com", "email_provider": "sendgrid", "sendgrid_api_key": "k"})
     assert asyncio.run(svc.send_notification(ch1, _make_alert(), "firing")) is True
     assert called['sg'][0] == 'k'
 
-    # resend
     ch2 = NotificationChannel(name="e2", type=ChannelType.EMAIL, config={"to": "a@b.com", "email_provider": "resend", "resend_api_key": "rk"})
     assert asyncio.run(svc.send_notification(ch2, _make_alert(), "firing")) is True
     assert called['rs'][0] == 'rk'
 
-    # smtp
     ch3 = NotificationChannel(name="e3", type=ChannelType.EMAIL, config={"to": "a@b.com", "smtp_host": "h", "smtp_port": 25})
     assert asyncio.run(svc.send_notification(ch3, _make_alert(), "firing")) is True
     assert called['smtp'][0] == 'h'

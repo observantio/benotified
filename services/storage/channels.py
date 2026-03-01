@@ -8,7 +8,6 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
-import json
 import logging
 import uuid
 from typing import Any, Dict, List, Optional, cast
@@ -30,7 +29,6 @@ logger = logging.getLogger(__name__)
 
 class ChannelStorageService:
     def __init__(self, backend):
-        # `backend` kept for backward compatibility with the facade; not used here.
         self._backend = backend
 
     def get_notification_channels(
@@ -50,7 +48,6 @@ class ChannelStorageService:
 
             results: List[NotificationChannel] = []
             for ch in channels:
-                # decrypt config for potential owner view (decryption will raise if key missing/wrong)
                 raw_cfg = decrypt_config(cast(Dict[str, Any], getattr(ch, "config") or {}))
                 setattr(ch, "config", raw_cfg)
                 shared_group_ids = [g.id for g in ch.shared_groups] if ch.shared_groups else []
@@ -94,7 +91,6 @@ class ChannelStorageService:
             db.add(ch)
             db.flush()
             logger.info("Created channel %s (%s) visibility=%s", ch.name, ch.id, ch.visibility)
-            # return decrypted config for owner
             cfg = decrypt_config(cast(Dict[str, Any], getattr(ch, "config") or {}))
             setattr(ch, "config", cfg)
             return _channel_to_pydantic_for_viewer(ch, user_id)

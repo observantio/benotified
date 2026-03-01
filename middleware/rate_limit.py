@@ -21,9 +21,7 @@ from dataclasses import dataclass
 from ipaddress import ip_address, ip_network
 from typing import Dict, Optional
 from urllib.parse import urlparse, urlunparse
-
 from fastapi import HTTPException, Request, status
-
 from config import config
 
 try:
@@ -170,9 +168,6 @@ class RedisFixedWindowRateLimiter:
         window_id = now // window_seconds
         bucket_key = f"{self._key_prefix}:{key}:{window_id}"
         retry_after = max(1, window_seconds - (now % window_seconds))
-
-        # transaction=False: INCR is already atomic; MULTI/EXEC adds round-trip
-        # overhead and contention that causes timeouts under burst traffic.
         pipe = self._client.pipeline(transaction=False)
         pipe.incr(bucket_key)
         pipe.expire(bucket_key, window_seconds + 1)

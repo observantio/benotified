@@ -1263,9 +1263,9 @@ async def delete_notification_channel(
     channel_id: str,
     current_user: TokenData = Depends(require_permission_with_scope(Permission.DELETE_CHANNELS, "alertmanager")),
 ):
-    tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
+    tenant_id, user_id, _ = alertmanager_service.user_scope(current_user)
     success = await run_in_threadpool(
-        storage_service.delete_notification_channel, channel_id, tenant_id, user_id, group_ids
+        storage_service.delete_notification_channel, channel_id, tenant_id, user_id,
     )
     if not success:
         raise HTTPException(status_code=404, detail=f"Notification channel {channel_id} not found or access denied")

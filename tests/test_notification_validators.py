@@ -18,19 +18,15 @@ from services.notification import validators as notification_validators
 
 
 def test_validate_channel_config_email_checks():
-    # missing recipient
     errs = notification_validators.validate_channel_config("email", {})
     assert any("recipient" in e.lower() or "to'" in e for e in errs)
 
-    # smtp requires host
     errs = notification_validators.validate_channel_config("email", {"to": "a@b.com", "email_provider": "smtp"})
     assert any("smtp_host" in e or "smtp host" in e.replace(' ', '_') for e in errs)
 
-    # sendgrid requires api key
     errs = notification_validators.validate_channel_config("email", {"to": "a@b.com", "email_provider": "sendgrid"})
     assert any("sendgrid" in e.lower() for e in errs)
 
-    # resend requires api key
     errs = notification_validators.validate_channel_config("email", {"to": "a@b.com", "email_provider": "resend"})
     assert any("resend" in e.lower() for e in errs)
 

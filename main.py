@@ -42,8 +42,9 @@ app = FastAPI(
     title="BeNotified",
     description="Internal alerting service for BeObservant",
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if config.ENABLE_API_DOCS else None,
+    redoc_url="/redoc" if config.ENABLE_API_DOCS else None,
+    openapi_url="/openapi.json" if config.ENABLE_API_DOCS else None,
 )
 
 app.middleware("http")(security_headers_middleware)
@@ -60,7 +61,10 @@ app.add_middleware(
 
 @app.middleware("http")
 async def require_internal_service_token(request: Request, call_next):
-    if request.url.path in {"/health", "/ready", "/docs", "/redoc", "/openapi.json"}:
+    allowed_paths = {"/health", "/ready"}
+    if config.ENABLE_API_DOCS:
+        allowed_paths.update({"/docs", "/redoc", "/openapi.json"})
+    if request.url.path in allowed_paths:
         return await call_next(request)
     if request.url.path in {
         "/internal/v1/alertmanager/alerts/webhook",

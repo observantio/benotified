@@ -12,8 +12,6 @@ import json
 import logging
 from hmac import compare_digest
 from typing import Dict, List, Optional
-
-import httpx
 from fastapi import HTTPException, Request, status
 
 from config import config
@@ -22,8 +20,8 @@ from db_models import PurgedSilence
 from middleware.dependencies import enforce_public_endpoint_security
 from middleware.resilience import with_retry, with_timeout
 from models.access.auth_models import TokenData
-from models.alerting.alerts import Alert, AlertGroup, AlertStatus, AlertState
-from models.alerting.silences import Silence, SilenceCreate, Matcher, Visibility
+from models.alerting.alerts import Alert, AlertGroup
+from models.alerting.silences import Silence, SilenceCreate
 from models.alerting.rules import AlertRule
 from models.alerting.receivers import AlertManagerStatus
 from services.common.http_client import create_async_client
@@ -109,6 +107,11 @@ class AlertManagerService:
         )
         expected = config.INBOUND_WEBHOOK_TOKEN
         if not expected:
+            if config.IS_PRODUCTION:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="INBOUND_WEBHOOK_TOKEN is required in production",
+                )
             return
 
         provided_header = request.headers.get("x-beobservant-webhook-token")

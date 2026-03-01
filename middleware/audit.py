@@ -13,7 +13,6 @@ from fastapi import Request
 
 async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
-
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")

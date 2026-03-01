@@ -10,9 +10,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 
 from typing import Any, Dict, List, Optional
-
 from models.alerting.incidents import AlertIncident, AlertIncidentUpdateRequest
-
 
 class IncidentStorageService:
     def __init__(self, backend):

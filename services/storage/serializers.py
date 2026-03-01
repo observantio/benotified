@@ -11,8 +11,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from datetime import datetime, timezone
 import logging
-from typing import Any, Dict
-
+from typing import Any
 from models.alerting.incidents import AlertIncident as AlertIncidentPydantic, IncidentStatus
 from models.alerting.rules import AlertRule as AlertRulePydantic
 from models.alerting.channels import NotificationChannel as NotificationChannelPydantic
@@ -20,8 +19,7 @@ from services.common.meta import INCIDENT_META_KEY, _parse_meta, _safe_group_ids
 
 logger = logging.getLogger(__name__)
 
-
-def _rule_to_pydantic(r) -> AlertRulePydantic:
+def rule_to_pydantic(r) -> AlertRulePydantic:
     payload = {
         "id": r.id,
         "orgId": r.org_id,
@@ -40,11 +38,11 @@ def _rule_to_pydantic(r) -> AlertRulePydantic:
     return AlertRulePydantic.parse_obj(payload)
 
 
-def _channel_to_pydantic(ch) -> NotificationChannelPydantic:
-    return _channel_to_pydantic_for_viewer(ch, viewer_user_id=ch.created_by)
+def channel_to_pydantic(ch) -> NotificationChannelPydantic:
+    return channel_to_pydantic_for_viewer(ch, viewer_user_id=ch.created_by)
 
 
-def _channel_to_pydantic_for_viewer(ch, viewer_user_id: Any) -> NotificationChannelPydantic:
+def channel_to_pydantic_for_viewer(ch, viewer_user_id: Any) -> NotificationChannelPydantic:
     raw_config = ch.config or {}
     payload = {
         "id": ch.id,
@@ -59,7 +57,7 @@ def _channel_to_pydantic_for_viewer(ch, viewer_user_id: Any) -> NotificationChan
     return NotificationChannelPydantic.parse_obj(payload)
 
 
-def _incident_to_pydantic(incident) -> AlertIncidentPydantic:
+def incident_to_pydantic(incident) -> AlertIncidentPydantic:
     annotations = incident.annotations or {}
     meta = _parse_meta(annotations)
 

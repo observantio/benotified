@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Callable, Awaitable, Optional
+from typing import Optional
 
 from starlette.responses import PlainTextResponse
 

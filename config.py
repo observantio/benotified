@@ -12,11 +12,12 @@ import logging
 import os
 import secrets
 from typing import Optional, List
+from services.secrets.provider import SecretProvider, EnvSecretProvider
 
+from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.asymmetric import ec
-
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,25 @@ def _is_placeholder(value: Optional[str], placeholders: List[str]) -> bool:
         return True
     normalized = value.strip()
     return not normalized or normalized in placeholders
+
+
+def _normalized_secret(value: Optional[str]) -> str:
+    return str(value or "").strip().lower()
+
+
+def _is_weak_secret(value: Optional[str]) -> bool:
+    normalized = _normalized_secret(value)
+    if not normalized:
+        return True
+    weak_markers = (
+        "changeme",
+        "replace_with",
+        "example",
+        "default",
+        "secret",
+        "password",
+    )
+    return any(marker in normalized for marker in weak_markers)
 
 
 def _generate_rsa_keypair() -> tuple[str, str]:
@@ -76,11 +96,46 @@ def _env_name() -> str:
 def _is_production_env() -> bool:
     return _env_name() in {"prod", "production"}
 
+
+def build_secret_provider() -> SecretProvider:
+    vault_addr = os.getenv("VAULT_ADDR", "").strip()
+    if not vault_addr:
+        return EnvSecretProvider()
+
+    from vault import VaultClientError, VaultSecretProvider
+
+    token = os.getenv("VAULT_TOKEN", "").strip() or None
+    role_id = os.getenv("VAULT_ROLE_ID", "").strip() or None
+    secret_id_file = os.getenv("VAULT_SECRET_ID_FILE", "").strip() or None
+    secret_id = os.getenv("VAULT_SECRET_ID", "").strip() or None
+
+    secret_id_fn = None
+    if role_id:
+        if secret_id_file:
+            def secret_id_fn() -> str:
+                with open(secret_id_file) as f:
+                    return f.read().strip()
+        elif secret_id:
+            secret_id_fn = lambda: secret_id
+        else:
+            raise VaultClientError(
+                "VAULT_ROLE_ID set but neither VAULT_SECRET_ID nor VAULT_SECRET_ID_FILE provided"
+            )
+
+    return VaultSecretProvider(
+        address=vault_addr,
+        token=token,
+        role_id=role_id,
+        secret_id_fn=secret_id_fn,
+        prefix=os.getenv("VAULT_PREFIX", "secret").strip(),
+        kv_version=int(os.getenv("VAULT_KV_VERSION", "2")),
+        timeout=float(os.getenv("VAULT_TIMEOUT", "2.0")),
+        cacert=os.getenv("VAULT_CACERT", "").strip() or None,
+        cache_ttl=float(os.getenv("VAULT_CACHE_TTL", "30.0")),
+    )
+
+
 class Config:
-
-    ALLOWED_JWT_ALGORITHMS = {"RS256", "ES256"}
-    EXAMPLE_DATABASE_URL = "postgresql://beobservant:changeme123@localhost:5432/beobservant"
-
     def __init__(self) -> None:
         self.APP_ENV: str = _env_name()
         self.IS_PRODUCTION: bool = _is_production_env()
@@ -89,18 +144,11 @@ class Config:
         self.HOST: str = os.getenv("HOST", "127.0.0.1")
         self.PORT: int = int(os.getenv("PORT", "4319"))
         self.LOG_LEVEL: str = os.getenv("LOG_LEVEL", "info")
+        self.ENABLE_API_DOCS: bool = _to_bool(os.getenv("ENABLE_API_DOCS"), default=not self.IS_PRODUCTION)
 
         # Service URLs
-        self.TEMPO_URL: str = os.getenv("TEMPO_URL", "http://tempo:3200")
-        self.LOKI_URL: str = os.getenv("LOKI_URL", "http://loki:3100")
         self.ALERTMANAGER_URL: str = os.getenv("ALERTMANAGER_URL", "http://alertmanager:9093")
-        self.GRAFANA_URL: str = os.getenv("GRAFANA_URL", "http://grafana:3000")
         self.MIMIR_URL: str = os.getenv("MIMIR_URL", "http://mimir:9009")
-
-        # Grafana credentials
-        self.GRAFANA_USERNAME: str = os.getenv("GRAFANA_USERNAME", "admin")
-        self.GRAFANA_PASSWORD: str = os.getenv("GRAFANA_PASSWORD", "admin")
-        self.GRAFANA_API_KEY: Optional[str] = os.getenv("GRAFANA_API_KEY")
 
         # Encryption key for sensitive data at rest (channel config in DB)
         self.DATA_ENCRYPTION_KEY: Optional[str] = os.getenv("DATA_ENCRYPTION_KEY")
@@ -118,22 +166,9 @@ class Config:
 
         # Shared upstream HTTP client pool tuning
         self.HTTP_CLIENT_MAX_CONNECTIONS: int = int(os.getenv("HTTP_CLIENT_MAX_CONNECTIONS", "100"))
-        self.HTTP_CLIENT_MAX_KEEPALIVE_CONNECTIONS: int = int(os.getenv("HTTP_CLIENT_MAX_KEEPALIVE_CONNECTIONS", "40"))
+        self.SERVICE_CACHE_TTL_SECONDS: int = int(os.getenv("HTTP_CLIENT_MAX_KEEPALIVE_CONNECTIONS", "40"))
         self.HTTP_CLIENT_KEEPALIVE_EXPIRY: float = float(os.getenv("HTTP_CLIENT_KEEPALIVE_EXPIRY", "30"))
 
-        # Query optimizations
-        self.LOKI_FALLBACK_CONCURRENCY: int = int(os.getenv("LOKI_FALLBACK_CONCURRENCY", "4"))
-        self.LOKI_MAX_FALLBACK_QUERIES: int = int(os.getenv("LOKI_MAX_FALLBACK_QUERIES", "4"))
-        self.TEMPO_TRACE_FETCH_CONCURRENCY: int = int(os.getenv("TEMPO_TRACE_FETCH_CONCURRENCY", "8"))
-        self.TEMPO_VOLUME_BUCKET_CONCURRENCY: int = int(os.getenv("TEMPO_VOLUME_BUCKET_CONCURRENCY", "8"))
-        # When true, use Tempo/Mimir metrics API for trace count/volume queries where possible.
-        # Operators can opt out by setting TEMPO_USE_METRICS_FOR_COUNT=false
-        self.TEMPO_USE_METRICS_FOR_COUNT: bool = _to_bool(os.getenv("TEMPO_USE_METRICS_FOR_COUNT"), default=True)
-        self.SERVICE_CACHE_TTL_SECONDS: int = int(os.getenv("SERVICE_CACHE_TTL_SECONDS", "30"))
-
-        # CORS settings
-        self.CORS_ORIGINS: List[str] = _to_list(os.getenv("CORS_ORIGINS"), default=["*"])
-        self.CORS_ALLOW_CREDENTIALS: bool = _to_bool(os.getenv("CORS_ALLOW_CREDENTIALS"), default=True)
 
         # API limits
         self.MAX_QUERY_LIMIT: int = int(os.getenv("MAX_QUERY_LIMIT", "1000"))
@@ -160,88 +195,35 @@ class Config:
         self.AGENT_INGEST_IP_ALLOWLIST: Optional[str] = os.getenv("AGENT_INGEST_IP_ALLOWLIST")
         self.GRAFANA_PROXY_IP_ALLOWLIST: Optional[str] = os.getenv("GRAFANA_PROXY_IP_ALLOWLIST")
         self.AGENT_HEARTBEAT_TOKEN: Optional[str] = os.getenv("AGENT_HEARTBEAT_TOKEN")
-
         # Optional shared secrets for inbound endpoints
         self.INBOUND_WEBHOOK_TOKEN: Optional[str] = os.getenv("INBOUND_WEBHOOK_TOKEN")
         self.OTLP_INGEST_TOKEN: Optional[str] = os.getenv("OTLP_INGEST_TOKEN")
-
         self.GATEWAY_INTERNAL_SERVICE_TOKEN: Optional[str] = os.getenv("GATEWAY_INTERNAL_SERVICE_TOKEN")
         self.BENOTIFIED_EXPECTED_SERVICE_TOKEN: Optional[str] = os.getenv("BENOTIFIED_EXPECTED_SERVICE_TOKEN")
         self.BENOTIFIED_CONTEXT_VERIFY_KEY: Optional[str] = os.getenv("BENOTIFIED_CONTEXT_VERIFY_KEY")
         self.BENOTIFIED_CONTEXT_SIGNING_KEY: Optional[str] = os.getenv("BENOTIFIED_CONTEXT_SIGNING_KEY")
         self.BENOTIFIED_CONTEXT_ISSUER: str = os.getenv("BENOTIFIED_CONTEXT_ISSUER", "beobservant-main")
         self.BENOTIFIED_CONTEXT_AUDIENCE: str = os.getenv("BENOTIFIED_CONTEXT_AUDIENCE", "benotified")
-        self.BENOTIFIED_CONTEXT_ALGORITHMS: str = os.getenv("BENOTIFIED_CONTEXT_ALGORITHMS", "HS256")
+        legacy_algorithms = os.getenv("BENOTIFIED_CONTEXT_ALGORITHMS")
+        canonical_algorithm = os.getenv("BENOTIFIED_CONTEXT_ALGORITHM")
+        self.BENOTIFIED_CONTEXT_ALGORITHM: str = (
+            canonical_algorithm or legacy_algorithms or "HS256"
+        ).strip().upper()
+        # Backward compatibility alias for old code paths/tests.
+        self.BENOTIFIED_CONTEXT_ALGORITHMS: str = self.BENOTIFIED_CONTEXT_ALGORITHM
+        self.BENOTIFIED_CONTEXT_REPLAY_TTL_SECONDS: int = int(
+            os.getenv("BENOTIFIED_CONTEXT_REPLAY_TTL_SECONDS", "180")
+        )
         self.BENOTIFIED_TLS_ENABLED: bool = _to_bool(os.getenv("BENOTIFIED_TLS_ENABLED"), default=False)
 
-        # Authentication
-        self.JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "RS256").strip().upper()
-        self.JWT_EXPIRATION_MINUTES: int = int(os.getenv("JWT_EXPIRATION_MINUTES", "1440"))
-        self.JWT_SECRET_KEY: str = os.getenv("JWT_SECRET_KEY", "")
-        self.JWT_PRIVATE_KEY: Optional[str] = os.getenv("JWT_PRIVATE_KEY")
-        self.JWT_PUBLIC_KEY: Optional[str] = os.getenv("JWT_PUBLIC_KEY")
-        self.JWT_AUTO_GENERATE_KEYS: bool = _to_bool(
-            os.getenv("JWT_AUTO_GENERATE_KEYS"),
-            default=not self.IS_PRODUCTION,
-        )
-
-        # Identity provider / OIDC (Keycloak recommended)
-        self.AUTH_PROVIDER: str = os.getenv("AUTH_PROVIDER", "local").strip().lower()
-        self.AUTH_PASSWORD_FLOW_ENABLED: bool = _to_bool(os.getenv("AUTH_PASSWORD_FLOW_ENABLED"), default=False)
-        self.OIDC_ISSUER_URL: Optional[str] = os.getenv("OIDC_ISSUER_URL")
-        self.OIDC_CLIENT_ID: Optional[str] = os.getenv("OIDC_CLIENT_ID")
-        self.OIDC_CLIENT_SECRET: Optional[str] = os.getenv("OIDC_CLIENT_SECRET")
-        self.OIDC_AUDIENCE: Optional[str] = os.getenv("OIDC_AUDIENCE")
-        self.OIDC_JWKS_URL: Optional[str] = os.getenv("OIDC_JWKS_URL")
-        self.OIDC_SCOPES: str = os.getenv("OIDC_SCOPES", "openid profile email")
-        self.OIDC_AUTO_PROVISION_USERS: bool = _to_bool(os.getenv("OIDC_AUTO_PROVISION_USERS"), default=True)
-
-        # Keycloak admin API (optional, for app-driven user provisioning)
-        self.KEYCLOAK_ADMIN_URL: Optional[str] = os.getenv("KEYCLOAK_ADMIN_URL")
-        self.KEYCLOAK_ADMIN_REALM: Optional[str] = os.getenv("KEYCLOAK_ADMIN_REALM")
-        self.KEYCLOAK_ADMIN_CLIENT_ID: Optional[str] = os.getenv("KEYCLOAK_ADMIN_CLIENT_ID")
-        self.KEYCLOAK_ADMIN_CLIENT_SECRET: Optional[str] = os.getenv("KEYCLOAK_ADMIN_CLIENT_SECRET")
-        self.KEYCLOAK_USER_PROVISIONING_ENABLED: bool = _to_bool(
-            os.getenv("KEYCLOAK_USER_PROVISIONING_ENABLED"),
-            default=False,
-        )
-
-        # Production hardening controls
-        self.DEFAULT_ADMIN_BOOTSTRAP_ENABLED: bool = _to_bool(
-            os.getenv("DEFAULT_ADMIN_BOOTSTRAP_ENABLED"),
-            default=not self.IS_PRODUCTION,
-        )
-        self.REQUIRE_TOTP_ENCRYPTION_KEY: bool = _to_bool(
-            os.getenv("REQUIRE_TOTP_ENCRYPTION_KEY"),
-            default=self.IS_PRODUCTION,
-        )
         self.TRUSTED_PROXY_CIDRS: List[str] = _to_list(os.getenv("TRUSTED_PROXY_CIDRS"), default=[])
         self.REQUIRE_CLIENT_IP_FOR_PUBLIC_ENDPOINTS: bool = _to_bool(
             os.getenv("REQUIRE_CLIENT_IP_FOR_PUBLIC_ENDPOINTS"),
             default=self.IS_PRODUCTION,
         )
 
-        # Cookie / allowlist hardening
-        self.FORCE_SECURE_COOKIES: bool = _to_bool(os.getenv("FORCE_SECURE_COOKIES"), default=self.IS_PRODUCTION)
         # When true, an explicit-but-empty allowlist will be treated as permissive. Default is false (fail-closed).
         self.ALLOWLIST_FAIL_OPEN: bool = _to_bool(os.getenv("ALLOWLIST_FAIL_OPEN"), default=False)
-
-        self.DB_AUTO_CREATE_SCHEMA: bool = _to_bool(
-            os.getenv("DB_AUTO_CREATE_SCHEMA"),
-            default=not self.IS_PRODUCTION,
-        )
-
-        self.RATE_LIMIT_GC_EVERY: int = int(os.getenv("RATE_LIMIT_GC_EVERY", "1024"))
-        self.RATE_LIMIT_STALE_AFTER_SECONDS: int = int(os.getenv("RATE_LIMIT_STALE_AFTER_SECONDS", "3600"))
-        self.RATE_LIMIT_MAX_STATES: int = int(os.getenv("RATE_LIMIT_MAX_STATES", "200000"))
-        self.RATE_LIMIT_FALLBACK_MODE: str = os.getenv("RATE_LIMIT_FALLBACK_MODE", "memory").strip().lower()
-        self.PASSWORD_HASH_MAX_CONCURRENCY: int = int(os.getenv("PASSWORD_HASH_MAX_CONCURRENCY", "8"))
-
-        # Default admin bootstrap (can be overridden via environment)
-        self.DEFAULT_ADMIN_USERNAME: str = os.getenv("DEFAULT_ADMIN_USERNAME", "admin")
-        self.DEFAULT_ADMIN_PASSWORD: str = os.getenv("DEFAULT_ADMIN_PASSWORD", "")
-        self.DEFAULT_ADMIN_EMAIL: str = os.getenv("DEFAULT_ADMIN_EMAIL", "admin@example.com")
-        self.DEFAULT_ADMIN_TENANT: str = os.getenv("DEFAULT_ADMIN_TENANT", "default")
 
         # Multi-tenancy
         self.DEFAULT_ORG_ID: str = os.getenv("DEFAULT_ORG_ID", "default")
@@ -421,17 +403,46 @@ class Config:
         if self.IS_PRODUCTION and self.DEFAULT_ADMIN_BOOTSTRAP_ENABLED:
             raise ValueError("DEFAULT_ADMIN_BOOTSTRAP_ENABLED must be false in production")
 
-        if self.IS_PRODUCTION and self.DB_AUTO_CREATE_SCHEMA:
-            raise ValueError("DB_AUTO_CREATE_SCHEMA must be disabled in production; use Alembic migrations")
-
         if self.REQUIRE_TOTP_ENCRYPTION_KEY and not self.DATA_ENCRYPTION_KEY:
             raise ValueError("DATA_ENCRYPTION_KEY is required when REQUIRE_TOTP_ENCRYPTION_KEY is enabled")
+        if self.IS_PRODUCTION and not self.DATA_ENCRYPTION_KEY:
+            raise ValueError("DATA_ENCRYPTION_KEY must be configured in production")
+        if self.DATA_ENCRYPTION_KEY:
+            try:
+                Fernet(self.DATA_ENCRYPTION_KEY)
+            except Exception as exc:
+                raise ValueError("DATA_ENCRYPTION_KEY must be a valid Fernet key") from exc
 
         wildcard_enabled = any(origin.strip() == "*" for origin in self.CORS_ORIGINS)
         if wildcard_enabled and self.CORS_ALLOW_CREDENTIALS:
             raise ValueError(
                 "CORS_ORIGINS cannot contain '*' when CORS_ALLOW_CREDENTIALS is enabled."
             )
+
+        if self.BENOTIFIED_CONTEXT_ALGORITHM not in self.ALLOWED_CONTEXT_ALGORITHMS:
+            raise ValueError(
+                f"Unsupported BENOTIFIED_CONTEXT_ALGORITHM '{self.BENOTIFIED_CONTEXT_ALGORITHM}'. "
+                f"Allowed values: {sorted(self.ALLOWED_CONTEXT_ALGORITHMS)}"
+            )
+        if self.BENOTIFIED_CONTEXT_REPLAY_TTL_SECONDS <= 0:
+            raise ValueError("BENOTIFIED_CONTEXT_REPLAY_TTL_SECONDS must be greater than 0")
+
+        if self.IS_PRODUCTION:
+            required_production_secrets = {
+                "INBOUND_WEBHOOK_TOKEN": self.INBOUND_WEBHOOK_TOKEN,
+                "BENOTIFIED_EXPECTED_SERVICE_TOKEN": (
+                    self.BENOTIFIED_EXPECTED_SERVICE_TOKEN or self.GATEWAY_INTERNAL_SERVICE_TOKEN
+                ),
+                "BENOTIFIED_CONTEXT_VERIFY_KEY": (
+                    self.BENOTIFIED_CONTEXT_VERIFY_KEY or self.BENOTIFIED_CONTEXT_SIGNING_KEY
+                ),
+                "GATEWAY_INTERNAL_SERVICE_TOKEN": self.GATEWAY_INTERNAL_SERVICE_TOKEN,
+            }
+            for key, value in required_production_secrets.items():
+                if _is_weak_secret(value):
+                    raise ValueError(f"{key} must be set to a strong non-placeholder secret in production")
+            if self.ALLOWLIST_FAIL_OPEN:
+                raise ValueError("ALLOWLIST_FAIL_OPEN must be false in production")
 
         if self.MAX_QUERY_LIMIT <= 0:
             raise ValueError("MAX_QUERY_LIMIT must be greater than 0")
@@ -442,23 +453,10 @@ class Config:
 
 
 class Constants:
-    APP_NAME: str = "Be Observant with Your Infrastructure"
-    APP_VERSION: str = "1.0.0"
-    APP_DESCRIPTION: str = (
-        "Unified API for managing Tempo, Loki, AlertManager, and Grafana"
-    )
-
     # HTTP status messages
     STATUS_HEALTHY: str = "Healthy"
     STATUS_SUCCESS: str = "Success"
     STATUS_ERROR: str = "Error"
-
-
-    # Service names
-    SERVICE_TEMPO: str = "Tempo"
-    SERVICE_LOKI: str = "Loki"
-    SERVICE_ALERTMANAGER: str = "AlertManager"
-    SERVICE_GRAFANA: str = "Grafana"
 
 config = Config()
 constants = Constants()

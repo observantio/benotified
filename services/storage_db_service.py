@@ -29,16 +29,15 @@ from db_models import (
 from models.alerting.channels import NotificationChannel as NotificationChannelPydantic, NotificationChannelCreate
 from models.alerting.incidents import AlertIncident as AlertIncidentPydantic, AlertIncidentUpdateRequest
 from models.alerting.rules import AlertRule as AlertRulePydantic, AlertRuleCreate
-from services.common.access import _assign_shared_groups, _has_access, _resolve_groups
+from services.common.access import _assign_shared_groups, _has_access
 from services.common.encryption import decrypt_config, encrypt_config
 from services.common.meta import INCIDENT_META_KEY, _parse_meta, _safe_group_ids
 from services.common.pagination import _cap_pagination
 from services.common.visibility import normalize_storage_visibility
 from services.storage.serializers import (
-    _channel_to_pydantic,
-    _channel_to_pydantic_for_viewer,
-    _incident_to_pydantic,
-    _rule_to_pydantic,
+    channel_to_pydantic_for_viewer,
+    incident_to_pydantic,
+    rule_to_pydantic,
 )
 
 logger = logging.getLogger(__name__)
@@ -224,20 +223,20 @@ class DatabaseStorageService:
                         continue
 
                 if creator_id == user_id:
-                    result.append(_incident_to_pydantic(incident))
+                    result.append(incident_to_pydantic(incident))
                     continue
 
                 if incident_visibility == "public":
                     if not group_id:
-                        result.append(_incident_to_pydantic(incident))
+                        result.append(incident_to_pydantic(incident))
                     continue
 
                 if incident_visibility == "group":
                     if group_id:
                         if group_id in group_ids and group_id in shared_group_ids:
-                            result.append(_incident_to_pydantic(incident))
+                            result.append(incident_to_pydantic(incident))
                     elif group_ids and set(group_ids) & set(shared_group_ids):
-                        result.append(_incident_to_pydantic(incident))
+                        result.append(incident_to_pydantic(incident))
 
             return result
 
@@ -267,7 +266,7 @@ class DatabaseStorageService:
                 if not _has_access(inc_visibility, creator_id, user_id, _safe_group_ids(meta), group_ids, require_write=require_write):
                     return None
 
-            return _incident_to_pydantic(incident)
+            return incident_to_pydantic(incident)
 
     def _is_assignee_allowed(
         self,
@@ -289,8 +288,6 @@ class DatabaseStorageService:
             User.is_active.is_(True),
         ).first()
         if not assignee_user:
-            # In decoupled mode users/groups are authoritative in main server.
-            # Accept non-empty assignee IDs for non-private incidents.
             return True
         if visibility == "group":
             return bool(set(_extract_user_group_ids(assignee_user)) & set(shared_group_ids or []))
@@ -314,11 +311,9 @@ class DatabaseStorageService:
             previous_assignee = incident.assignee
             previous_status = str(incident.status or "")
             resolved_note_text: Optional[str] = None
-
             meta = _parse_meta(incident.annotations or {})
             visibility = normalize_storage_visibility(str(meta.get("visibility") or "public"))
             shared_group_ids = _safe_group_ids(meta)
-
             if payload.assignee is not None:
                 requested_assignee = payload.assignee.strip() or None
                 if not self._is_assignee_allowed(
@@ -339,7 +334,6 @@ class DatabaseStorageService:
                 if status_value.startswith("IncidentStatus."):
                     status_value = status_value.split(".", 1)[1].lower()
                 incident.status = status_value
-
                 if incident.status == "resolved":
                     incident.resolved_at = datetime.now(timezone.utc)
                     manual_manage_flag = False
@@ -383,10 +377,8 @@ class DatabaseStorageService:
 
             meta["updated_by"] = user_id
             incident.annotations = {**annotations, INCIDENT_META_KEY: json.dumps(meta)}
-
             now_iso = datetime.now(timezone.utc).isoformat()
             notes = list(incident.notes or [])
-
             if payload.note:
                 logger.debug("Appending note for incident %s by user %s", incident_id, user_id)
                 notes.append({"author": user_id, "text": payload.note, "createdAt": now_iso})
@@ -405,7 +397,7 @@ class DatabaseStorageService:
                 _log_incident_audit(db, tenant_id=tenant_id, user_id=user_id, action="incident.status.change", incident_id=incident_id, details={"from": previous_status, "to": str(incident.status or "")})
 
             db.flush()
-            return _incident_to_pydantic(incident)
+            return incident_to_pydantic(incident)
 
     def filter_alerts_for_user(
         self,
@@ -473,7 +465,7 @@ class DatabaseStorageService:
                 )
                 .all()
             )
-            return [_rule_to_pydantic(r) for r in rules]
+            return [rule_to_pydantic(r) for r in rules]
 
     def get_alert_rules(
         self,
@@ -494,7 +486,7 @@ class DatabaseStorageService:
                 .all()
             )
             return [
-                _rule_to_pydantic(r) for r in rules
+                rule_to_pydantic(r) for r in rules
                 if _has_access(cast(str, r.visibility or "private"), cast(str, r.created_by), user_id, _get_shared_group_ids(r), group_ids)
             ]
 
@@ -506,7 +498,7 @@ class DatabaseStorageService:
                 .filter(AlertRuleDB.tenant_id == tenant_id, AlertRuleDB.org_id == org_id)
                 .all()
             )
-            return [_rule_to_pydantic(r) for r in rules]
+            return [rule_to_pydantic(r) for r in rules]
 
     def get_alert_rules_with_owner(
         self,
@@ -531,7 +523,7 @@ class DatabaseStorageService:
                 vis = cast(str, r.visibility or "private")
                 created_by = cast(str, r.created_by)
                 if _has_access(vis, created_by, user_id, _get_shared_group_ids(r), group_ids):
-                    results.append((_rule_to_pydantic(r), created_by))
+                    results.append((rule_to_pydantic(r), created_by))
             return results
 
     def get_alert_rule_raw(self, rule_id: str, tenant_id: str) -> Optional[AlertRuleDB]:
@@ -562,7 +554,7 @@ class DatabaseStorageService:
                 return None
             if not _has_access(cast(str, r.visibility or "private"), cast(str, r.created_by), user_id, _get_shared_group_ids(r), group_ids):
                 return None
-            return _rule_to_pydantic(r)
+            return rule_to_pydantic(r)
 
     def create_alert_rule(
         self,
@@ -585,7 +577,7 @@ class DatabaseStorageService:
             db.add(rule)
             db.flush()
             logger.info("Created alert rule %s (%s) org_id=%s visibility=%s", rule.name, rule.id, rule.org_id, rule.visibility)
-            return _rule_to_pydantic(rule)
+            return rule_to_pydantic(rule)
 
     def update_alert_rule(
         self,
@@ -607,7 +599,6 @@ class DatabaseStorageService:
                 return None
             if not _has_access(cast(str, r.visibility or "private"), cast(str, r.created_by), user_id, _get_shared_group_ids(r), group_ids):
                 return None
-                return None
 
             r.org_id = rule_update.org_id or None
             r.name = rule_update.name
@@ -624,7 +615,7 @@ class DatabaseStorageService:
             _assign_shared_groups(r, db, tenant_id, vis, rule_update.shared_group_ids, actor_user_id=user_id, actor_group_ids=group_ids)
             db.flush()
             logger.info("Updated alert rule %s (%s) org_id=%s", r.name, rule_id, r.org_id)
-            return _rule_to_pydantic(r)
+            return rule_to_pydantic(r)
 
     def delete_alert_rule(
         self,
@@ -644,7 +635,6 @@ class DatabaseStorageService:
             if not r:
                 return False
             if not _has_access(cast(str, r.visibility or "private"), cast(str, r.created_by), user_id, _get_shared_group_ids(r), group_ids, require_write=True):
-                return False
                 return False
             db.delete(r)
             logger.info("Deleted alert rule %s", rule_id)
@@ -674,7 +664,7 @@ class DatabaseStorageService:
                     continue
                 cfg = decrypt_config(cast(Dict[str, Any], getattr(ch, "config") or {}))
                 setattr(ch, "config", cfg)
-                result.append(_channel_to_pydantic_for_viewer(ch, user_id))
+                result.append(channel_to_pydantic_for_viewer(ch, user_id))
             return result
 
     def get_notification_channel(
@@ -696,7 +686,7 @@ class DatabaseStorageService:
                 return None
             cfg = decrypt_config(cast(Dict[str, Any], getattr(ch, "config") or {}))
             setattr(ch, "config", cfg)
-            return _channel_to_pydantic_for_viewer(ch, user_id)
+            return channel_to_pydantic_for_viewer(ch, user_id)
 
     def create_notification_channel(
         self,
@@ -718,7 +708,7 @@ class DatabaseStorageService:
             logger.info("Created channel %s (%s) visibility=%s", ch.name, ch.id, ch.visibility)
             cfg = decrypt_config(cast(Dict[str, Any], getattr(ch, "config") or {}))
             setattr(ch, "config", cfg)
-            return _channel_to_pydantic_for_viewer(ch, user_id)
+            return channel_to_pydantic_for_viewer(ch, user_id)
 
     def update_notification_channel(
         self,
@@ -749,14 +739,13 @@ class DatabaseStorageService:
             logger.info("Updated channel %s (%s)", ch.name, channel_id)
             cfg = decrypt_config(cast(Dict[str, Any], getattr(ch, "config") or {}))
             setattr(ch, "config", cfg)
-            return _channel_to_pydantic_for_viewer(ch, user_id)
+            return channel_to_pydantic_for_viewer(ch, user_id)
 
     def delete_notification_channel(
         self,
         channel_id: str,
         tenant_id: str,
         user_id: str,
-        group_ids: Optional[List[str]] = None,
     ) -> bool:
         with get_db_session() as db:
             ch = (
@@ -807,5 +796,5 @@ class DatabaseStorageService:
                 for ch in q.limit(int(app_config.MAX_QUERY_LIMIT)).all():
                     cfg = decrypt_config(cast(Dict[str, Any], getattr(ch, "config") or {}))
                     setattr(ch, "config", cfg)
-                    results.append(_channel_to_pydantic(ch))
+                    results.append(channel_to_pydantic_for_viewer(ch, ch.created_by))
             return results

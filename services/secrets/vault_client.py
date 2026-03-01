@@ -85,7 +85,8 @@ class VaultSecretProvider:
             raise VaultClientError("Vault authentication failed")
 
     def _approle_login(self) -> None:
-        assert self._secret_id_fn is not None
+        if self._secret_id_fn is None:
+            raise VaultClientError("Vault AppRole secret id callback is not configured")
         secret_id = self._secret_id_fn()
         auth = self._client.auth.approle.login(role_id=self._role_id, secret_id=secret_id)
         self._client.token = auth["auth"]["client_token"]
@@ -102,8 +103,10 @@ class VaultSecretProvider:
             entry = self._cache.get(key, _SENTINEL)
             if entry is _SENTINEL:
                 return _SENTINEL
-            assert isinstance(entry, tuple) and len(entry) == 2
-            ts, value = entry  # type: float, Any
+            if not isinstance(entry, tuple) or len(entry) != 2:
+                self._cache.pop(key, None)
+                return _SENTINEL
+            ts, value = entry 
             if time.monotonic() - ts > self._cache_ttl:
                 del self._cache[key]
                 return _SENTINEL

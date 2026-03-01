@@ -29,7 +29,7 @@ def test_is_transient_http_exception():
 def test_post_with_retry_success():
     class DummyClient:
         async def post(self, url, json=None, headers=None, params=None, **kwargs):
-            # accept arbitrary extra kwargs like timeout
+            
             return httpx.Response(200, request=httpx.Request("POST", url))
 
     client = DummyClient()

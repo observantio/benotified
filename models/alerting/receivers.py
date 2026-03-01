@@ -9,7 +9,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 from typing import Dict, List, Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # Description constants
 DESC_RECEIVER_NAME = "Receiver name"
@@ -32,9 +32,7 @@ class Receiver(BaseModel):
     pagerduty_configs: List[Dict[str, Any]] = Field(default_factory=list, alias="pagerdutyConfigs", description=DESC_RECEIVER_PAGERDUTY_CONFIGS)
     msteams_configs: List[Dict[str, Any]] = Field(default_factory=list, alias="msteamsConfigs", description=DESC_RECEIVER_TEAMS_CONFIGS)
 
-    class Config:
-        use_enum_values = True
-        populate_by_name = True
+    model_config = ConfigDict(use_enum_values=True, populate_by_name=True)
 
 
 class AlertManagerStatus(BaseModel):
@@ -43,6 +41,4 @@ class AlertManagerStatus(BaseModel):
     config_hash: str = Field(..., alias="configHash", description=DESC_ALERTMANAGER_CONFIG_HASH)
     cluster: Dict[str, Any] = Field(..., description=DESC_ALERTMANAGER_CLUSTER_STATUS)
 
-    class Config:
-        use_enum_values = True
-        populate_by_name = True
+    model_config = ConfigDict(use_enum_values=True, populate_by_name=True)

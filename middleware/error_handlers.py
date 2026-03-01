@@ -17,7 +17,6 @@ import logging
 import httpx
 from fastapi import HTTPException, status
 
-
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 logger = logging.getLogger(__name__)
 

@@ -84,14 +84,19 @@ def _encrypt_tenant_secret(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
     if not config.DATA_ENCRYPTION_KEY:
-        logger.warning("DATA_ENCRYPTION_KEY is not configured; storing Jira secret without encryption")
-        return value
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="DATA_ENCRYPTION_KEY is required to store Jira secrets",
+        )
     try:
         fernet = Fernet(config.DATA_ENCRYPTION_KEY)
         return f"enc:{fernet.encrypt(value.encode()).decode()}"
     except Exception as exc:
-        logger.warning("Failed to encrypt Jira secret; storing plaintext fallback: %s", exc)
-        return value
+        logger.exception("Failed to encrypt Jira secret")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to encrypt Jira secret",
+        ) from exc
 
 
 def _decrypt_tenant_secret(value: Optional[str]) -> Optional[str]:
@@ -99,6 +104,7 @@ def _decrypt_tenant_secret(value: Optional[str]) -> Optional[str]:
         return None
     text = str(value)
     if not text.startswith("enc:"):
+        logger.warning("Encountered legacy plaintext Jira secret; migration is required")
         return text
     if not config.DATA_ENCRYPTION_KEY:
         return None

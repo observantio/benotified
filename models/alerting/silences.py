@@ -8,7 +8,7 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 from typing import Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from enum import Enum
 
 from config import config
@@ -43,8 +43,7 @@ class Matcher(BaseModel):
     is_regex: bool = Field(False, alias="isRegex", description=DESC_VALUE_IS_REGEX)
     is_equal: bool = Field(True, alias="isEqual", description=DESC_MATCH_EQUAL_VALUES)
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class Silence(BaseModel):
@@ -58,9 +57,7 @@ class Silence(BaseModel):
     visibility: Optional[Visibility] = Field(None, description=DESC_VISIBILITY_SCOPE)
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_SILENCE_SHARED_WITH)
 
-    class Config:
-        populate_by_name = True
-        use_enum_values = True
+    model_config = ConfigDict(populate_by_name=True, use_enum_values=True)
 
 
 class SilenceCreate(BaseModel):
@@ -70,8 +67,7 @@ class SilenceCreate(BaseModel):
     created_by: str = Field(..., alias="createdBy", description=DESC_USER_CREATED_SILENCE)
     comment: str = Field(..., description=DESC_COMMENT_EXPLAINING_SILENCE)
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class SilenceCreateRequest(BaseModel):
@@ -82,6 +78,4 @@ class SilenceCreateRequest(BaseModel):
     visibility: Visibility = Field(Visibility.PRIVATE, description=DESC_VISIBILITY_SCOPE)
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_SHARE_WITH)
 
-    class Config:
-        populate_by_name = True
-        use_enum_values = True
+    model_config = ConfigDict(populate_by_name=True, use_enum_values=True)

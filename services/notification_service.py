@@ -10,7 +10,6 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import httpx
 import logging
-import os
 from typing import Optional
 from datetime import datetime
 import re
@@ -28,7 +27,6 @@ from services.notification import email_providers as notification_email
 from services.notification import senders as notification_senders
 
 logger = logging.getLogger(__name__)
-NO_VALUE = "(none)"
 
 class NotificationService:
 
@@ -197,13 +195,11 @@ class NotificationService:
             f"{login_line}"
             "If this is your first login, follow your administrator's instructions for credentials and MFA setup.\n"
         )
-
         msg = EmailMessage()
         msg["Subject"] = subject
         msg["From"] = smtp_from
         msg["To"] = recipient_email
         msg.set_content(body)
-
         try:
             await self._send_smtp_with_retry(
                 message=msg,
@@ -271,7 +267,6 @@ class NotificationService:
             logger.error("Unsupported email provider '%s' for channel %s", provider, channel.name)
             return False
 
-        # SMTP connection params (accept multiple key names)
         smtp_host = channel_config.get('smtp_host') or channel_config.get('smtpHost')
         smtp_port = int(channel_config.get('smtp_port') or channel_config.get('smtpPort') or 0)
         smtp_user = channel_config.get('smtp_username') or channel_config.get('smtpUsername') or channel_config.get('username')
@@ -285,7 +280,6 @@ class NotificationService:
             logger.error("SMTP host not configured for email channel %s", channel.name)
             return False
         if smtp_port == 0:
-            # sensible defaults
             smtp_port = 465 if use_ssl else 587 if use_starttls else 25
 
         if smtp_auth_type == 'none':
@@ -301,11 +295,8 @@ class NotificationService:
             if smtp_user and not smtp_pass and smtp_api_key:
                 smtp_pass = smtp_api_key
 
-        # Build message
         msg = notification_email.build_smtp_message(subject, body, smtp_from, recipients)
-
         logger.info("Sending email notification to %s via %s:%s (channel=%s)", recipients, smtp_host, smtp_port, channel.name)
-
         sent = await notification_email.send_via_smtp(msg, smtp_host, smtp_port, smtp_user, smtp_pass, use_starttls, use_ssl, timeout=self.timeout)
         if sent:
             logger.info("Email notification sent (channel=%s)", channel.name)
