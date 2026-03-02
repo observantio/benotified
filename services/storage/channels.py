@@ -31,9 +31,6 @@ def _shared_group_ids(db_obj) -> List[str]:
 
 
 class ChannelStorageService:
-    def __init__(self, backend: Optional[object] = None):
-        self._backend = backend
-
     def get_notification_channels(
         self,
         tenant_id: str,

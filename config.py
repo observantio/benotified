@@ -100,7 +100,8 @@ def build_secret_provider() -> SecretProvider:
                 with open(secret_id_file) as f:
                     return f.read().strip()
         elif secret_id:
-            secret_id_fn = lambda: secret_id
+            def secret_id_fn() -> str:
+                return secret_id
         else:
             raise VaultClientError(
                 "VAULT_ROLE_ID set but neither VAULT_SECRET_ID nor VAULT_SECRET_ID_FILE provided"
@@ -208,7 +209,6 @@ class Config:
         self.BENOTIFIED_TLS_ENABLED: bool = _to_bool(os.getenv("BENOTIFIED_TLS_ENABLED"), default=False)
 
         self.DEFAULT_ORG_ID: str = os.getenv("DEFAULT_ORG_ID", "default")
-        self.DEFAULT_OTLP_TOKEN: Optional[str] = os.getenv("DEFAULT_OTLP_TOKEN")
 
         self.JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "RS256").strip().upper()
         self.JWT_SECRET_KEY: Optional[str] = os.getenv("JWT_SECRET_KEY")
@@ -275,7 +275,8 @@ class Config:
                     with open(vault_secret_id_file) as f:
                         return f.read().strip()
             elif self.VAULT_SECRET_ID:
-                secret_id_fn = lambda: self.VAULT_SECRET_ID
+                def secret_id_fn() -> str:
+                    return self.VAULT_SECRET_ID
             else:
                 raise VaultClientError(
                     "VAULT_ROLE_ID set but neither VAULT_SECRET_ID nor VAULT_SECRET_ID_FILE provided"
@@ -404,9 +405,7 @@ class Config:
 
 
 class Constants:
-    STATUS_HEALTHY: str = "Healthy"
     STATUS_SUCCESS: str = "Success"
-    STATUS_ERROR: str = "Error"
 
 
 config = Config()

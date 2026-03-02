@@ -31,28 +31,6 @@ def _make_alert():
     return Alert(labels={"alertname": "A", "severity": "critical"}, annotations={}, startsAt="2023-01-01T00:00:00Z", status=AlertStatus(state="active"), fingerprint="fp")
 
 
-def test_post_and_smtp_delegate_to_transport(monkeypatch):
-    called = {}
-
-    async def fake_post(client, url, json=None, headers=None, params=None):
-        called['post'] = (client, url, json, headers, params)
-        return httpx.Response(200, request=httpx.Request("POST", url))
-
-    async def fake_smtp(message, hostname, port, username=None, password=None, start_tls=False, use_tls=False, timeout=None):
-        called['smtp'] = (hostname, port, timeout)
-        return "ok"
-
-    monkeypatch.setattr(notification_transport, "post_with_retry", fake_post)
-    monkeypatch.setattr(notification_transport, "send_smtp_with_retry", fake_smtp)
-
-    svc = NotificationService()
-    resp = asyncio.run(svc._post_with_retry("https://example.com", json={"a": 1}))
-    assert isinstance(resp, httpx.Response)
-    assert called['post'][1] == "https://example.com"
-
-    res = asyncio.run(svc._send_smtp_with_retry(message="m", hostname="h", port=25, username=None, password=None, start_tls=False, use_tls=False))
-    assert res == "ok"
-    assert called['smtp'][0] == "h"
 
 
 def test_send_slack_delegates_to_senders(monkeypatch):

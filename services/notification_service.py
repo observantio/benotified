@@ -49,15 +49,6 @@ class NotificationService:
     def validate_channel_config(self, channel_type: str, channel_config: dict | None) -> list[str]:
         return notification_validators.validate_channel_config(channel_type, channel_config)
 
-    async def _post_with_retry(
-        self,
-        url: str,
-        json: dict | None = None,
-        headers: dict | None = None,
-        params: dict | None = None,
-    ) -> httpx.Response:
-        return await notification_transport.post_with_retry(self._client, url, json=json, headers=headers, params=params)
-
     async def _send_smtp_with_retry(
         self,
         message: EmailMessage,

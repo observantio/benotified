@@ -27,11 +27,7 @@ logger = logging.getLogger(__name__)
 def _shared_group_ids(db_obj) -> List[str]:
     return [g.id for g in db_obj.shared_groups] if getattr(db_obj, "shared_groups", None) else []
 
-
 class RuleStorageService:
-    def __init__(self, backend: Optional[object] = None):
-        self._backend = backend
-
     def get_public_alert_rules(self, tenant_id: str) -> List[AlertRule]:
         with get_db_session() as db:
             rules = (

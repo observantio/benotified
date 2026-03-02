@@ -11,3 +11,4 @@ __pycache__/
 .mypy_cache
 .pre-commit-config.yaml
 CODE_OF_CONDUCT.md
+.ruff_cache

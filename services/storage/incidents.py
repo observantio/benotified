@@ -13,7 +13,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session, joinedload
@@ -64,9 +64,6 @@ def _resolve_rule_by_alertname(db: Session, tenant_id: str, labels: Dict[str, An
 
 
 class IncidentStorageService:
-    def __init__(self, backend: Optional[object] = None):
-        self._backend = backend
-
     def sync_incidents_from_alerts(self, tenant_id: str, alerts: List[Dict[str, Any]], resolve_missing: bool = True) -> None:
         now = datetime.now(timezone.utc)
         active_fingerprints: set[str] = set()

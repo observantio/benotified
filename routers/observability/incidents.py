@@ -20,6 +20,7 @@ from models.access.auth_models import Permission, TokenData
 from models.alerting.incidents import AlertIncident, AlertIncidentUpdateRequest
 from services.alertmanager_service import AlertManagerService
 from services.storage_db_service import DatabaseStorageService
+from services.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ router = APIRouter(prefix="/api/alertmanager", tags=["alertmanager-incidents"])
 
 alertmanager_service = AlertManagerService()
 storage_service = DatabaseStorageService()
+notification_service = NotificationService()
 
 @router.get("/incidents", response_model=List[AlertIncident])
 async def get_incidents(
@@ -105,5 +107,16 @@ async def patch_incident(
             )
         except Exception:
             logger.exception("Failed to record assignment note for incident %s", incident_id)
+
+        try:
+            await notification_service.send_incident_assignment_email(
+                recipient_email=updated.assignee,
+                incident_title=updated.alert_name,
+                incident_status=updated.status,
+                incident_severity=updated.severity,
+                actor=current_user.username or current_user.user_id,
+            )
+        except Exception:
+            logger.exception("Failed to send assignment email for incident %s", incident_id)
 
     return updated

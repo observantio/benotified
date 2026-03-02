@@ -13,3 +13,5 @@ __pycache__/
 *.tar.gz
 *.log
 .mypy_cache
+.ruff_cache
+

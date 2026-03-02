@@ -30,9 +30,6 @@ def _is_transient_http(exc: Exception, retry_on_status: frozenset[int]) -> bool:
     return False
 
 
-def is_transient_http_exception(exc: Exception, retry_on_status: frozenset[int] | set[int] = DEFAULT_RETRY_ON_STATUS) -> bool:
-    return _is_transient_http(exc, frozenset(retry_on_status))
-
 
 def _is_transient_smtp(exc: Exception) -> bool:
     if isinstance(exc, aiosmtplib.errors.SMTPException):

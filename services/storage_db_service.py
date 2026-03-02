@@ -21,10 +21,10 @@ from services.storage.rules import RuleStorageService
 
 
 class DatabaseStorageService:
-    def __init__(self, backend: Optional[object] = None):
-        self.channels = ChannelStorageService(backend)
-        self.incidents = IncidentStorageService(backend)
-        self.rules = RuleStorageService(backend)
+    def __init__(self):
+        self.channels = ChannelStorageService()
+        self.incidents = IncidentStorageService()
+        self.rules = RuleStorageService()
 
     def sync_incidents_from_alerts(self, tenant_id: str, alerts: List[Dict[str, Any]], resolve_missing: bool = True) -> None:
         return self.incidents.sync_incidents_from_alerts(tenant_id, alerts, resolve_missing)

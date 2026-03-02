@@ -79,7 +79,7 @@ def test_verify_context_token_replay_detection(monkeypatch):
     monkeypatch.setattr(config, "BENOTIFIED_CONTEXT_SIGNING_KEY", key)
     monkeypatch.setattr(config, "BENOTIFIED_CONTEXT_ALGORITHM", "HS256")
     monkeypatch.setattr(config, "BENOTIFIED_CONTEXT_AUDIENCE", "benotified")
-    monkeypatch.setattr(config, "BENOTIFIED_CONTEXT_ISSUER", "beobservant-main")
+    setattr(config, "BENOTIFIED_CONTEXT_ISSUER", "beobservant-main")
     monkeypatch.setattr(config, "BENOTIFIED_CONTEXT_REPLAY_TTL_SECONDS", 120)
 
     now = datetime.now(timezone.utc)

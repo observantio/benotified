@@ -230,16 +230,6 @@ def _record_fallback_event(mode: str, reason: str) -> None:
     )
 
 
-def get_rate_limit_observability_snapshot() -> Dict[str, int]:
-    with _fallback_lock:
-        return {
-            "fallback_total": _rate_limit_fallback_total,
-            "fallback_memory": _rate_limit_fallback_by_mode.get("memory", 0),
-            "fallback_deny": _rate_limit_fallback_by_mode.get("deny", 0),
-            "fallback_allow": _rate_limit_fallback_by_mode.get("allow", 0),
-        }
-
-
 def _build_rate_limiter() -> HybridRateLimiter:
     backend = (os.getenv("RATE_LIMIT_BACKEND", "auto") or "auto").strip().lower()
     redis_url = (os.getenv("RATE_LIMIT_REDIS_URL", "") or "").strip()
