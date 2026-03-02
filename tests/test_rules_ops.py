@@ -7,7 +7,6 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 import unittest
-from types import SimpleNamespace
 from config import config
 
 try:

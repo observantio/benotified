@@ -12,7 +12,7 @@ except ImportError:
     from tests._env import ensure_test_env
 ensure_test_env()
 
-from models.alerting.alerts import Alert, AlertStatus, AlertState
+from models.alerting.alerts import Alert
 from services.notification import payloads as notification_payloads
 
 

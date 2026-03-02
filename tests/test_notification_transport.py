@@ -13,7 +13,6 @@ except ImportError:
 ensure_test_env()
 
 import asyncio
-import httpx
 import aiosmtplib
 
 from services.notification import transport

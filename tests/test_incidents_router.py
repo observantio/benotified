@@ -3,7 +3,6 @@ Tests for the incidents router, mostly focused on side effects such as
 notification dispatch when an incident is assigned.
 """
 
-import os
 import pytest
 
 # ensure configuration is initialized with safe test environment before
@@ -20,7 +19,8 @@ from models.alerting.incidents import (
 
 # import the incidents router module directly by file path so we don't
 # trigger the package-level imports in routers/observability/__init__
-import importlib.util, sys
+import importlib.util
+import sys
 from pathlib import Path
 
 incidents_path = Path(__file__).resolve().parents[1] / "routers" / "observability" / "incidents.py"

@@ -13,7 +13,6 @@ import re
 from datetime import datetime
 from email.message import EmailMessage
 
-import httpx
 
 from config import config
 from models.alerting.alerts import Alert

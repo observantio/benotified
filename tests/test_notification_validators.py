@@ -12,7 +12,6 @@ except ImportError:
     from tests._env import ensure_test_env
 ensure_test_env()
 
-import pytest
 
 from services.notification import validators as notification_validators
 

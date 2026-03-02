@@ -12,7 +12,6 @@ except ImportError:
     from tests._env import ensure_test_env
 ensure_test_env()
 
-import json
 from cryptography.fernet import Fernet
 from config import config
 from services.common import encryption as encryption_module

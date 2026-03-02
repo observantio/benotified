@@ -13,13 +13,10 @@ except ImportError:
 ensure_test_env()
 
 import asyncio
-import httpx
 
-import pytest
 from config import config
 
 from services.notification import senders as notification_senders
-from services.notification import transport as notification_transport
 from services.notification import email_providers as notification_email
 from services.notification import payloads as notification_payloads
 from services.notification_service import NotificationService
