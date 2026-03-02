@@ -8,3 +8,6 @@ __pycache__/
 *.zip
 *.tar.gz
 *.log
+.mypy_cache
+.pre-commit-config.yaml
+CODE_OF_CONDUCT.md

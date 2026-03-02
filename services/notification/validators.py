@@ -8,11 +8,9 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
-
 import re
 from typing import Dict, List, Any
 from services.common.url_utils import is_safe_http_url
-
 
 def validate_channel_config(channel_type: str, channel_config: Dict[str, Any] | None) -> List[str]:
     cfg = channel_config or {}
@@ -31,7 +29,6 @@ def validate_channel_config(channel_type: str, channel_config: Dict[str, Any] | 
             if not str(smtp_host or "").strip():
                 errors.append("SMTP email channel requires 'smtp_host'")
 
-            # Optional: validate SMTP port
             smtp_port = cfg.get('smtp_port') or cfg.get('smtpPort')
             if smtp_port is not None:
                 try:
@@ -72,14 +69,3 @@ def validate_channel_config(channel_type: str, channel_config: Dict[str, Any] | 
             errors.append("PagerDuty channel requires 'routing_key'")
 
     return errors
-
-
-def _as_bool(value: Any) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return value != 0
-    if isinstance(value, str):
-        val = value.strip().lower()
-        return val in ("1", "true", "yes", "on")
-    return False

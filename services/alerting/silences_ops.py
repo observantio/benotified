@@ -7,16 +7,17 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
+
 import asyncio
 from typing import Dict, List, Optional
-
 import httpx
-
+import logging
 from database import get_db_session
 from db_models import PurgedSilence
 from models.access.auth_models import TokenData
 from models.alerting.silences import Silence, SilenceCreate, Visibility
 
+logger = logging.getLogger(__name__)
 
 def apply_silence_metadata(service, silence: Silence) -> Silence:
     data = service.decode_silence_comment(silence.comment)
@@ -26,7 +27,7 @@ def apply_silence_metadata(service, silence: Silence) -> Silence:
     return silence
 
 
-def silence_accessible(service, silence: Silence, current_user: TokenData) -> bool:
+def silence_accessible(silence: Silence, current_user: TokenData) -> bool:
     visibility = silence.visibility or Visibility.TENANT.value
     if silence.created_by == current_user.username:
         return True
@@ -62,10 +63,10 @@ async def get_silences(service, filter_labels: Optional[Dict[str, str]] = None) 
 
         ids_removed = [s.id for s in raw if s.id and s.id in purged_ids]
         if ids_removed:
-            service.logger.debug("Excluding purged silences from results: %s", ids_removed)
+            logger.debug("Excluding purged silences from results: %s", ids_removed)
         return [s for s in raw if not (s.id and s.id in purged_ids)]
     except httpx.HTTPError as exc:
-        service.logger.error("Error fetching silences: %s", exc)
+        logger.error("Error fetching silences: %s", exc)
         return []
 
 
@@ -75,7 +76,7 @@ async def get_silence(service, silence_id: str) -> Optional[Silence]:
         response.raise_for_status()
         return Silence(**response.json())
     except httpx.HTTPError as exc:
-        service.logger.error("Error fetching silence %s: %s", silence_id, exc)
+        logger.error("Error fetching silence %s: %s", silence_id, exc)
         return None
 
 
@@ -88,7 +89,7 @@ async def create_silence(service, silence: SilenceCreate) -> Optional[str]:
         response.raise_for_status()
         return response.json().get("silenceID")
     except httpx.HTTPError as exc:
-        service.logger.error("Error creating silence: %s", exc)
+        logger.error("Error creating silence: %s", exc)
         return None
 
 
@@ -109,10 +110,10 @@ async def delete_silence(service, silence_id: str) -> bool:
             if state and str(state).lower() == "expired":
                 return True
 
-        service.logger.error("Silence %s still present after delete call", silence_id)
+        logger.error("Silence %s still present after delete call", silence_id)
         return False
     except httpx.HTTPError as exc:
-        service.logger.error("Error deleting silence %s: %s", silence_id, exc)
+        logger.error("Error deleting silence %s: %s", silence_id, exc)
         return False
 
 

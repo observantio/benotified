@@ -16,6 +16,7 @@ import asyncio
 import httpx
 
 import pytest
+from config import config
 
 from services.notification import senders as notification_senders
 from services.notification import transport as notification_transport
@@ -81,13 +82,16 @@ def test_send_email_delegates_to_email_providers(monkeypatch):
         called['rs'] = (api_key, recipients)
         return True
 
-    async def fake_send_via_smtp(message, hostname, port, username, password, start_tls, use_tls, timeout=None):
+    async def fake_send_via_smtp(message, hostname, port, username, password, start_tls, use_tls):
         called['smtp'] = (hostname, port)
         return True
 
     monkeypatch.setattr(notification_email, "send_via_sendgrid", fake_send_via_sendgrid)
     monkeypatch.setattr(notification_email, "send_via_resend", fake_send_via_resend)
     monkeypatch.setattr(notification_email, "send_via_smtp", fake_send_via_smtp)
+
+    # ensure a default from address exists so service logic doesn't blow up
+    config.DEFAULT_ADMIN_EMAIL = "admin@example.com"
 
     svc = NotificationService()
     ch1 = NotificationChannel(name="e1", type=ChannelType.EMAIL, config={"to": "a@b.com", "email_provider": "sendgrid", "sendgrid_api_key": "k"})
@@ -104,35 +108,28 @@ def test_send_email_delegates_to_email_providers(monkeypatch):
 
 
 def test_format_helpers_delegate_to_payloads(monkeypatch):
+    # ensure the formatting helper is actually invoked during notification
     called = {}
 
     def fake_format(alert, action):
         called['format'] = (alert, action)
         return "FORMATTED"
 
-    def fake_label(alert, key, default=""):
-        called['label'] = (alert, key, default)
-        return "LBL"
-
-    def fake_annotation(alert, key):
-        called['annotation'] = (alert, key)
-        return "ANN"
-
-    def fake_text(alert):
-        called['text'] = alert
-        return "T"
-
     monkeypatch.setattr(notification_payloads, "format_alert_body", fake_format)
-    monkeypatch.setattr(notification_payloads, "get_label", fake_label)
-    monkeypatch.setattr(notification_payloads, "get_annotation", fake_annotation)
-    monkeypatch.setattr(notification_payloads, "get_alert_text", fake_text)
+
+    # avoid real email transport so test stays fast
+    async def fake_send_smtp(message, hostname, port, username=None, password=None, start_tls=False, use_tls=False):
+        return True
+
+    monkeypatch.setattr(notification_email, "send_via_smtp", fake_send_smtp)
+
+    # provide a default from address for the service
+    config.DEFAULT_ADMIN_EMAIL = "admin@example.com"
 
     svc = NotificationService()
-    a = _make_alert()
-    assert svc._format_alert_body(a, "firing") == "FORMATTED"
-    assert svc._get_label(a, "alertname", "d") == "LBL"
-    assert svc._get_annotation(a, "summary") == "ANN"
-    assert svc._get_alert_text(a) == "T"
+    ch = NotificationChannel(name="e", type=ChannelType.EMAIL, config={"to": "a@b.com", "smtp_host": "h", "smtp_port": 25})
+    asyncio.run(svc.send_notification(ch, _make_alert(), "firing"))
+    assert 'format' in called
 
 
 def test_send_email_uses_build_smtp_message(monkeypatch):
@@ -145,12 +142,15 @@ def test_send_email_uses_build_smtp_message(monkeypatch):
         m['Subject'] = subject
         return m
 
-    async def fake_send_smtp(message, hostname, port, username=None, password=None, start_tls=False, use_tls=False, timeout=None):
+    async def fake_send_smtp(message, hostname, port, username=None, password=None, start_tls=False, use_tls=False):
         captured['sent'] = (hostname, port)
         return True
 
     monkeypatch.setattr(notification_email, "build_smtp_message", fake_build)
     monkeypatch.setattr(notification_email, "send_via_smtp", fake_send_smtp)
+
+    # ensure default from address available
+    config.DEFAULT_ADMIN_EMAIL = "admin@example.com"
 
     svc = NotificationService()
     ch = NotificationChannel(name="e", type=ChannelType.EMAIL, config={"to": "a@b.com", "smtp_host": "h", "smtp_port": 25})

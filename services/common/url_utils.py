@@ -11,15 +11,14 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 import ipaddress
 from urllib.parse import urlparse
 
-_ALLOWED_SCHEMES = frozenset({"http", "https"})
-_MAX_URL_LENGTH = 2048
-
+ALLOWED_SCHEMES = frozenset({"http", "https"})
+MAX_URL_LENGTH = 2048
 
 def is_safe_http_url(value: str | None) -> bool:
     if not value or not isinstance(value, str):
         return False
 
-    if len(value) > _MAX_URL_LENGTH:
+    if len(value) > MAX_URL_LENGTH:
         return False
 
     try:
@@ -27,7 +26,7 @@ def is_safe_http_url(value: str | None) -> bool:
     except ValueError:
         return False
 
-    if parsed.scheme not in _ALLOWED_SCHEMES:
+    if parsed.scheme not in ALLOWED_SCHEMES:
         return False
 
     hostname = parsed.hostname

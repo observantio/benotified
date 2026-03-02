@@ -11,7 +11,6 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 import httpx
 from config import config
 
-
 def create_async_client(timeout_seconds: float) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         timeout=httpx.Timeout(timeout_seconds),

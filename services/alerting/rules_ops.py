@@ -11,22 +11,19 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 import logging
 from typing import List, Optional
 from urllib.parse import quote
-
 import httpx
-
 from models.access.auth_models import TokenData
 from models.alerting.rules import AlertRule
+from config import config
 
 logger = logging.getLogger(__name__)
 
-
-def resolve_rule_org_id(service, rule_org_id: Optional[str], current_user: TokenData) -> str:
-    return rule_org_id or getattr(current_user, "org_id", None) or service.config.DEFAULT_ORG_ID
-
+def resolve_rule_org_id(rule_org_id: Optional[str], current_user: TokenData) -> str:
+    return rule_org_id or getattr(current_user, "org_id", None) or config.DEFAULT_ORG_ID
 
 async def sync_mimir_rules_for_org(service, org_id: str, rules: List[AlertRule]) -> None:
     desired_groups = service._group_enabled_rules(rules)
-    base_url = service.config.MIMIR_URL.rstrip("/")
+    base_url = config.MIMIR_URL.rstrip("/")
     namespace = quote(service.MIMIR_RULES_NAMESPACE, safe="")
     namespace_url = f"{base_url}{service.MIMIR_RULER_CONFIG_BASEPATH}/{namespace}"
     org_header = {"X-Scope-OrgID": org_id}

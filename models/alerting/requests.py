@@ -9,15 +9,12 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 from __future__ import annotations
-
 from typing import Any, Dict, List, Optional
-
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class AlertWebhookRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
-
     alerts: List[Dict[str, Any]] = Field(default_factory=list)
 
 
@@ -50,7 +47,6 @@ class JiraIntegrationCreateRequest(BaseModel):
 
 class JiraIntegrationUpdateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-
     name: Optional[str] = None
     enabled: Optional[bool] = None
     visibility: Optional[str] = None

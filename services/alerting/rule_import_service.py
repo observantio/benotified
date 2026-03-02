@@ -11,19 +11,16 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
-
-import yaml
-
 from models.alerting.rules import AlertRuleCreate, RuleSeverity
 from models.alerting.silences import Visibility
 from services.common.visibility import normalize_visibility
 
-_VALID_SEVERITIES = {"info", "warning", "error", "critical"}
+import yaml
 
+VALID_SEVERITIES = {"info", "warning", "error", "critical"}
 
 class RuleImportError(ValueError):
     pass
-
 
 def _as_str_map(raw: Any) -> Dict[str, str]:
     if not isinstance(raw, dict):
@@ -38,7 +35,6 @@ def _normalize_visibility(value: Any, default_value: str = "private") -> str:
         public_alias="public",
         allowed={"tenant", "group", "private", "public"},
     )
-
 
 def _normalize_rule_entry(
     group_name: str,
@@ -62,18 +58,15 @@ def _normalize_rule_entry(
     severity = str(
         be_meta.get("severity") or labels.get("severity") or defaults.get("severity") or "warning"
     ).strip().lower()
-    if severity not in _VALID_SEVERITIES:
+    if severity not in VALID_SEVERITIES:
         severity = "warning"
     severity_enum = RuleSeverity(severity)
-
     channels_raw = be_meta.get("channels")
     channels_src = channels_raw if isinstance(channels_raw, list) else defaults.get("channels")
     channels = [str(c).strip() for c in (channels_src or []) if str(c).strip()]
-
     shared_raw = be_meta.get("sharedGroupIds")
     shared_src = shared_raw if isinstance(shared_raw, list) else []
     shared_group_ids = [str(gid).strip() for gid in shared_src if str(gid).strip()]
-
     visibility_str = _normalize_visibility(be_meta.get("visibility") or defaults.get("visibility"), "private")
     visibility_enum = Visibility(visibility_str)
 

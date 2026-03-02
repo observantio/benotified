@@ -1,6 +1,5 @@
 """
-Resilience decorators for service calls.
-
+Resilience decorators for service calls and rate limiting.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

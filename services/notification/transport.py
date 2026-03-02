@@ -8,18 +8,17 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
+import asyncio
 import logging
 from typing import Any
-
 import aiosmtplib
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
-
 from config import config
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_RETRY_ON_STATUS: frozenset[int] = frozenset({429, 500, 502, 503, 504})
+DEFAULT_RETRY_ON_STATUS: frozenset[int] = frozenset({429, 500, 502, 503, 504})
 
 
 def _is_transient_http(exc: Exception, retry_on_status: frozenset[int]) -> bool:
@@ -31,7 +30,7 @@ def _is_transient_http(exc: Exception, retry_on_status: frozenset[int]) -> bool:
     return False
 
 
-def is_transient_http_exception(exc: Exception, retry_on_status: frozenset[int] | set[int] = _DEFAULT_RETRY_ON_STATUS) -> bool:
+def is_transient_http_exception(exc: Exception, retry_on_status: frozenset[int] | set[int] = DEFAULT_RETRY_ON_STATUS) -> bool:
     return _is_transient_http(exc, frozenset(retry_on_status))
 
 
@@ -48,7 +47,7 @@ async def post_with_retry(
     json: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
     params: dict[str, Any] | None = None,
-    retry_on_status: frozenset[int] | set[int] = _DEFAULT_RETRY_ON_STATUS,
+    retry_on_status: frozenset[int] | set[int] = DEFAULT_RETRY_ON_STATUS,
 ) -> httpx.Response:
     retry_set = frozenset(retry_on_status)
 
@@ -84,19 +83,18 @@ async def send_smtp_with_retry(
     password: str | None = None,
     start_tls: bool = False,
     use_tls: bool = False,
-    timeout: int | None = None,
 ):
     try:
-        return await aiosmtplib.send(
-            message=message,
-            hostname=hostname,
-            port=port,
-            username=username,
-            password=password,
-            start_tls=start_tls,
-            use_tls=use_tls,
-            timeout=timeout or config.DEFAULT_TIMEOUT,
-        )
+        async with asyncio.timeout(config.DEFAULT_TIMEOUT):
+            return await aiosmtplib.send(
+                message=message,
+                hostname=hostname,
+                port=port,
+                username=username,
+                password=password,
+                start_tls=start_tls,
+                use_tls=use_tls,
+            )
     except Exception as exc:
         logger.warning("SMTP send failed, retrying: %s:%s", hostname, port, exc_info=exc)
         raise

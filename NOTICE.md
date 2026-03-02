@@ -11,6 +11,7 @@ Third-party components used by this project include (non-exhaustive):
 - AlertManager
 - PostgreSQL
 - Redis
+- Vault Support
 - FastAPI and the Python ecosystem
 
 Each dependency remains subject to its own license terms. Refer to dependency

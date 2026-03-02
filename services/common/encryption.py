@@ -7,17 +7,16 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
+
 import json
 import logging
 from functools import lru_cache
 from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
-
 from config import config as app_config
 
 logger = logging.getLogger(__name__)
-
 
 @lru_cache(maxsize=1)
 def _get_fernet() -> Fernet:
@@ -29,7 +28,6 @@ def _get_fernet() -> Fernet:
     except (ValueError, TypeError) as exc:
         raise RuntimeError("Invalid DATA_ENCRYPTION_KEY format") from exc
 
-
 def encrypt_config(cfg: dict[str, Any]) -> dict[str, Any]:
     try:
         f = _get_fernet()
@@ -39,7 +37,6 @@ def encrypt_config(cfg: dict[str, Any]) -> dict[str, Any]:
         raise
     except Exception as exc:
         raise ValueError("Failed to encrypt channel config") from exc
-
 
 def decrypt_config(cfg: dict[str, Any]) -> dict[str, Any]:
     if "__encrypted__" not in cfg:

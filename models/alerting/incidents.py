@@ -14,7 +14,6 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 class IncidentStatus(str, Enum):
     OPEN = "open"
     RESOLVED = "resolved"
@@ -54,9 +53,7 @@ class AlertIncident(BaseModel):
     resolved_at: Optional[datetime] = Field(None, alias="resolvedAt")
     created_at: datetime = Field(..., alias="createdAt")
     updated_at: datetime = Field(..., alias="updatedAt")
-    # Indicates the incident has been manually reopened / marked for investigation
     user_managed: bool = Field(False, alias="userManaged")
-    # When true the incident will be hidden from default listings once resolved
     hide_when_resolved: bool = Field(False, alias="hideWhenResolved")
 
     model_config = ConfigDict(use_enum_values=True, populate_by_name=True)

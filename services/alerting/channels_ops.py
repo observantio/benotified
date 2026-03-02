@@ -9,20 +9,21 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 from datetime import datetime, timezone
-
 from models.alerting.alerts import Alert, AlertState, AlertStatus
+import logging
 
+logger = logging.getLogger(__name__)
 
 async def notify_for_alerts(service, alerts_list, storage_service, notification_service) -> None:
     for incoming_alert in alerts_list:
         alertname = incoming_alert.get("labels", {}).get("alertname")
         if not alertname:
-            service.logger.debug("Alert without alertname label, skipping")
+            logger.debug("Alert without alertname label, skipping")
             continue
 
         channels = storage_service.get_notification_channels_for_rule_name(alertname)
         if not channels:
-            service.logger.info("No notification channels configured for rule %s", alertname)
+            logger.info("No notification channels configured for rule %s", alertname)
             continue
 
         raw_status = incoming_alert.get("status") or {}
@@ -53,15 +54,14 @@ async def notify_for_alerts(service, alerts_list, storage_service, notification_
         for channel in channels:
             try:
                 sent = await notification_service.send_notification(channel, alert_model, action)
-                service.logger.info("Sent notification to channel %s ok=%s", channel.name, sent)
+                logger.info("Sent notification to channel %s ok=%s", channel.name, sent)
             except Exception as exc:
-                service.logger.exception(
+                logger.exception(
                     "Failed to send notification for rule %s to channel %s: %s",
                     alertname,
                     getattr(channel, "name", "unknown"),
                     exc,
                 )
-
 
 async def get_status(service):
     try:
@@ -69,7 +69,7 @@ async def get_status(service):
         response.raise_for_status()
         return service.status_model(**response.json())
     except Exception as exc:
-        service.logger.error("Error fetching status: %s", exc)
+        logger.error("Error fetching status: %s", exc)
         return None
 
 

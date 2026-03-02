@@ -11,9 +11,6 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from enum import Enum
 
-from config import config
-
-# Description constants
 DESC_LABEL_NAME_MATCH = "Label name to match"
 DESC_VALUE_MATCH_AGAINST = "Value to match against"
 DESC_VALUE_IS_REGEX = "Whether the value is a regular expression"
@@ -31,10 +28,10 @@ DESC_GROUP_IDS_SHARE_WITH = "Group IDs to share with"
 
 
 class Visibility(str, Enum):
-    PRIVATE = "private"  # Only visible to creator
-    GROUP = "group"      # Visible to specified groups
-    TENANT = "tenant"    # Visible to all users in tenant
-    PUBLIC = "public"    # Visible to everyone
+    PRIVATE = "private"  
+    GROUP = "group"      
+    TENANT = "tenant"    
+    PUBLIC = "public"    
 
 
 class Matcher(BaseModel):
@@ -42,7 +39,6 @@ class Matcher(BaseModel):
     value: str = Field(..., description=DESC_VALUE_MATCH_AGAINST)
     is_regex: bool = Field(False, alias="isRegex", description=DESC_VALUE_IS_REGEX)
     is_equal: bool = Field(True, alias="isEqual", description=DESC_MATCH_EQUAL_VALUES)
-
     model_config = ConfigDict(populate_by_name=True)
 
 
@@ -56,7 +52,6 @@ class Silence(BaseModel):
     status: Optional[Dict[str, str]] = Field(None, description=DESC_CURRENT_STATUS_SILENCE)
     visibility: Optional[Visibility] = Field(None, description=DESC_VISIBILITY_SCOPE)
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_SILENCE_SHARED_WITH)
-
     model_config = ConfigDict(populate_by_name=True, use_enum_values=True)
 
 
@@ -66,7 +61,6 @@ class SilenceCreate(BaseModel):
     ends_at: str = Field(..., alias="endsAt", description=DESC_TIME_SILENCE_ENDS)
     created_by: str = Field(..., alias="createdBy", description=DESC_USER_CREATED_SILENCE)
     comment: str = Field(..., description=DESC_COMMENT_EXPLAINING_SILENCE)
-
     model_config = ConfigDict(populate_by_name=True)
 
 
@@ -77,5 +71,4 @@ class SilenceCreateRequest(BaseModel):
     comment: str = Field(..., description=DESC_COMMENT_EXPLAINING_SILENCE)
     visibility: Visibility = Field(Visibility.PRIVATE, description=DESC_VISIBILITY_SCOPE)
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_SHARE_WITH)
-
     model_config = ConfigDict(populate_by_name=True, use_enum_values=True)

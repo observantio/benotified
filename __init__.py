@@ -1,5 +1,5 @@
 """
-BeNotified service package.
+Be Notified service package.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 

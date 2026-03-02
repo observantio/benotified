@@ -2,7 +2,6 @@
 Shared router-level error handling helpers (moved from routers).
 Decorators for mapping expected exceptions to HTTP status codes consistently across route handlers.
 
-
 Copyright (c) 2026 Stefan Kumarasinghe
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,11 +14,12 @@ from typing import Any, Awaitable, Callable, TypeVar
 import logging
 
 import httpx
-from fastapi import HTTPException, status
+from fastapi import HTTPException, status, Request
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 logger = logging.getLogger(__name__)
-
 
 def handle_route_errors(
     *,
@@ -57,15 +57,11 @@ def handle_route_errors(
     return decorator
 
 
-from fastapi import Request
-from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-
-
 def validation_exception_handler(
     request: Request,
     exc: RequestValidationError,
 ) -> JSONResponse:
+    logger.warning(f"Request validation error for {request.url}: {exc}")
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={"detail": exc.errors()},
@@ -76,7 +72,7 @@ def general_exception_handler(
     request: Request,
     exc: Exception,
 ) -> JSONResponse:
-    logger.exception("Unhandled exception: %s", exc)
+    logger.exception(f"Unhandled exception for {request.url}: {exc}")
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={"detail": "Internal server error"},

@@ -12,7 +12,6 @@ from typing import Dict, List, Optional, Any, Union
 from pydantic import BaseModel, ConfigDict, Field
 from enum import Enum
 
-# Description constants
 DESC_CURRENT_STATE_ALERT = "Current state of the alert"
 DESC_LIST_SILENCES_SILENCE_ALERT = "List of silences that silence this alert"
 DESC_LIST_ALERTS_INHIBIT_ALERT = "List of alerts that inhibit this alert"
@@ -27,7 +26,6 @@ DESC_UNIQUE_IDENTIFIER_ALERT = "Unique identifier for the alert"
 DESC_COMMON_LABELS_GROUP = "Common labels for the group"
 DESC_RECEIVER_HANDLE_ALERTS = "Receiver that will handle these alerts"
 DESC_LIST_ALERTS_GROUP = "List of alerts in this group"
-
 
 class AlertState(str, Enum):
     UNPROCESSED = "unprocessed"

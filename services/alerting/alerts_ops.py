@@ -10,16 +10,14 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional
-
-import httpx
-
 from models.alerting.alerts import Alert, AlertGroup
 from models.alerting.silences import Matcher, SilenceCreate
-
+import httpx
+from config import config
 
 async def list_metric_names(service, org_id: str) -> List[str]:
     response = await service._mimir_client.get(
-        f"{service.config.MIMIR_URL.rstrip('/')}/prometheus/api/v1/label/__name__/values",
+        f"{config.MIMIR_URL.rstrip('/')}/prometheus/api/v1/label/__name__/values",
         headers={"X-Scope-OrgID": org_id},
     )
     response.raise_for_status()
@@ -79,7 +77,6 @@ async def get_alert_groups(service, filter_labels: Optional[Dict[str, str]] = No
     except httpx.HTTPError as exc:
         service.logger.error("Error fetching alert groups: %s", exc)
         return []
-
 
 async def post_alerts(service, alerts: List[Alert]) -> bool:
     try:

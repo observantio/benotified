@@ -8,13 +8,13 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 from enum import Enum
 
 from .silences import Visibility
 
-# Description constants
+
 DESC_UNIQUE_IDENTIFIER = "Unique identifier"
 DESC_RULE_NAME = "Rule name"
 DESC_RULE_EXPRESSION = "Prometheus expression for the alert rule"
@@ -43,7 +43,6 @@ class AlertRule(BaseModel):
     id: Optional[str] = Field(None, description=DESC_UNIQUE_IDENTIFIER)
     org_id: Optional[str] = Field(None, alias="orgId", description="Organization ID / API key scoped to this rule")
     name: str = Field(..., description=DESC_RULE_NAME)
-    # backend code expects `expr`/`duration`/`group` attributes; accept UI aliases as well
     expr: str = Field(..., alias="expression", description=DESC_RULE_EXPRESSION)
     severity: RuleSeverity = Field(..., description=DESC_RULE_SEVERITY)
     description: Optional[str] = Field(None, description=DESC_RULE_DESCRIPTION)
@@ -56,7 +55,6 @@ class AlertRule(BaseModel):
     notification_channels: List[str] = Field(default_factory=list, alias="notificationChannels", description="Notification channel IDs for this rule")
     visibility: Visibility = Field(Visibility.PRIVATE, description=DESC_VISIBILITY_SCOPE)
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_RULE_SHARED_WITH)
-
     model_config = ConfigDict(use_enum_values=True, populate_by_name=True)
 
 
@@ -75,7 +73,6 @@ class AlertRuleCreate(BaseModel):
     notification_channels: List[str] = Field(default_factory=list, alias="notificationChannels", description="Notification channel IDs for this rule")
     visibility: Visibility = Field(Visibility.PRIVATE, description=DESC_VISIBILITY_SCOPE)
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_SHARE_WITH)
-
     model_config = ConfigDict(use_enum_values=True, populate_by_name=True)
 
 

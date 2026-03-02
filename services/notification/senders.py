@@ -10,9 +10,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import logging
 from typing import Any
-
 import httpx
-
 from . import payloads, transport
 from services.common.url_utils import is_safe_http_url
 

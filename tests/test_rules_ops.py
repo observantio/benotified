@@ -8,6 +8,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import unittest
 from types import SimpleNamespace
+from config import config
 
 try:
     from ._env import ensure_test_env
@@ -22,7 +23,8 @@ from services.alerting.rules_ops import resolve_rule_org_id
 
 class RulesOpsTests(unittest.TestCase):
     def test_resolve_rule_org_id_prefers_rule_org(self):
-        service = SimpleNamespace(config=SimpleNamespace(DEFAULT_ORG_ID='default'))
+        # function now reads default from global config
+        config.DEFAULT_ORG_ID = 'default'
         user = TokenData(
             user_id='u1',
             username='alice',
@@ -33,10 +35,10 @@ class RulesOpsTests(unittest.TestCase):
             group_ids=[],
             is_superuser=False,
         )
-        self.assertEqual(resolve_rule_org_id(service, 'rule-org', user), 'rule-org')
+        self.assertEqual(resolve_rule_org_id('rule-org', user), 'rule-org')
 
     def test_resolve_rule_org_id_fallbacks_to_user_then_default(self):
-        service = SimpleNamespace(config=SimpleNamespace(DEFAULT_ORG_ID='default-org'))
+        config.DEFAULT_ORG_ID = 'default-org'
         user = TokenData(
             user_id='u1',
             username='alice',
@@ -47,10 +49,20 @@ class RulesOpsTests(unittest.TestCase):
             group_ids=[],
             is_superuser=False,
         )
-        self.assertEqual(resolve_rule_org_id(service, None, user), 'user-org')
+        self.assertEqual(resolve_rule_org_id(None, user), 'user-org')
 
-        no_user_org = SimpleNamespace(org_id=None)
-        self.assertEqual(resolve_rule_org_id(service, None, no_user_org), 'default-org')
+        # org_id must be a string; use empty value to trigger fallback
+        no_user_org = TokenData(
+            user_id='u2',
+            username='bob',
+            tenant_id='t1',
+            org_id='',
+            role='user',
+            permissions=[],
+            group_ids=[],
+            is_superuser=False,
+        )
+        self.assertEqual(resolve_rule_org_id(None, no_user_org), 'default-org')
 
 
 if __name__ == '__main__':

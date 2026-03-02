@@ -44,14 +44,15 @@ def test_send_via_sendgrid_and_resend_success_and_failure(monkeypatch):
 
 
 def test_send_via_smtp_calls_transport(monkeypatch):
-    async def fake_send(message, hostname, port, username=None, password=None, start_tls=False, use_tls=False, timeout=None):
+    async def fake_send(message, hostname, port, username=None, password=None, start_tls=False, use_tls=False):
         return True
 
     monkeypatch.setattr(transport, "send_smtp_with_retry", fake_send)
-    assert asyncio.run(email_providers.send_via_smtp("m", "h", 25, None, None, False, False, timeout=3)) is True
+    # updated helper no longer accepts a timeout parameter
+    assert asyncio.run(email_providers.send_via_smtp("m", "h", 25, None, None, False, False)) is True
 
     async def fake_send_err(*args, **kwargs):
         raise Exception("fail")
 
     monkeypatch.setattr(transport, "send_smtp_with_retry", fake_send_err)
-    assert asyncio.run(email_providers.send_via_smtp("m", "h", 25, None, None, False, False, timeout=3)) is False
+    assert asyncio.run(email_providers.send_via_smtp("m", "h", 25, None, None, False, False)) is False

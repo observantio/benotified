@@ -1,5 +1,5 @@
 """
-Access control utilities for checking user permissions and resolving group memberships for tenant-based resources, including functions to determine if a user is a tenant admin, resolve group objects from group IDs with optional membership enforcement, assign shared groups to database objects based on visibility settings, and check if a user has access to a resource based on its visibility and shared group memberships.
+Access control utilities for checking user permissions and resolving group memberships for tenant-based resources.
 
 Copyright (c) 2026 Stefan Kumarasinghe
 
@@ -10,21 +10,11 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import logging
 from typing import List, Optional
-
 from fastapi import HTTPException, status
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
-
-from db_models import Group, User
+from db_models import Group
 
 logger = logging.getLogger(__name__)
-
-
-def _is_tenant_admin(db: Session, tenant_id: str, user_id: Optional[str]) -> bool:
-    if not user_id:
-        return False
-    user = db.query(User).filter(User.id == user_id, User.tenant_id == tenant_id).first()
-    return bool(user and (getattr(user, "is_superuser", False) or str(getattr(user, "role", "")).lower() == "admin"))
 
 
 def _resolve_groups(
@@ -32,7 +22,6 @@ def _resolve_groups(
     tenant_id: str,
     group_ids: List[str],
     *,
-    actor_user_id: Optional[str] = None,
     actor_group_ids: Optional[List[str]] = None,
     enforce_membership: bool = True,
 ) -> List[Group]:
@@ -41,42 +30,30 @@ def _resolve_groups(
         return []
 
     groups = db.query(Group).filter(Group.tenant_id == tenant_id, Group.id.in_(normalized)).all()
-    present_by_id = {g.id: g for g in groups}
-    missing_ids = [gid for gid in normalized if gid not in present_by_id]
-    for gid in missing_ids:
-        db.execute(
-            pg_insert(Group)
-            .values(
-                id=gid,
-                tenant_id=tenant_id,
-                name=(f"group-{gid}"[:100] or gid[:100]),
-                description="Shadow group from main-server context",
-                is_active=True,
-            )
-            .on_conflict_do_nothing(index_elements=[Group.id])
-        )
-    if missing_ids:
-        groups = db.query(Group).filter(Group.tenant_id == tenant_id, Group.id.in_(normalized)).all()
-        present_by_id = {g.id: g for g in groups}
-    groups = [present_by_id[gid] for gid in normalized if gid in present_by_id]
+    present_ids = {g.id for g in groups}
+    missing = [gid for gid in normalized if gid not in present_ids]
+    if missing:
+        logger.warning("Skipping unknown group IDs for tenant %s: %s", tenant_id, missing)
 
-    if enforce_membership and not _is_tenant_admin(db, tenant_id, actor_user_id):
+    if enforce_membership:
         actor_groups = set(actor_group_ids or [])
-        unauthorized = [gid for gid in normalized if gid not in actor_groups]
+        unauthorized = [gid for gid in normalized if gid in present_ids and gid not in actor_groups]
         if unauthorized:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is not a member of one or more specified groups")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User is not a member of one or more specified groups",
+            )
 
     return groups
 
 
-def _assign_shared_groups(
+def assign_shared_groups(
     db_obj,
     db: Session,
     tenant_id: str,
     visibility: str,
     group_ids: Optional[List[str]],
     *,
-    actor_user_id: str,
     actor_group_ids: Optional[List[str]],
 ):
     if visibility != "group":
@@ -86,12 +63,11 @@ def _assign_shared_groups(
         raise ValueError("group_ids is required when visibility is 'group'")
     db_obj.shared_groups = _resolve_groups(
         db, tenant_id, group_ids,
-        actor_user_id=actor_user_id,
         actor_group_ids=actor_group_ids,
     )
 
 
-def _has_access(
+def has_access(
     visibility: str,
     created_by: Optional[str],
     user_id: str,

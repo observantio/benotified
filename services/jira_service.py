@@ -12,9 +12,7 @@ import base64
 import logging
 import os
 from typing import Any, Dict, List, Literal, Optional
-
 import httpx
-
 from config import config
 from services.common.http_client import create_async_client
 from services.common.url_utils import is_safe_http_url
@@ -23,10 +21,8 @@ logger = logging.getLogger(__name__)
 
 Credentials = Optional[Dict[str, Any]]
 
-
 class JiraError(Exception):
     pass
-
 
 class JiraService:
     def __init__(self, timeout: Optional[float] = None) -> None:
@@ -171,6 +167,5 @@ def _extract_display_name(author: Any) -> str:
     if not isinstance(author, dict):
         return "jira"
     return str(author.get("displayName") or author.get("name") or "jira")
-
 
 jira_service = JiraService()

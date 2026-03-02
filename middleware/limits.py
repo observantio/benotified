@@ -1,7 +1,6 @@
 """
 Request size and concurrency limiting middleware.
 
-
 Copyright (c) 2026 Stefan Kumarasinghe
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -22,7 +21,6 @@ logger = logging.getLogger(__name__)
 _request_size_rejections_total = 0
 _concurrency_busy_total = 0
 
-
 def _inc_request_size_rejections() -> int:
     global _request_size_rejections_total
     _request_size_rejections_total += 1
@@ -40,9 +38,7 @@ class _TooLarge(Exception):
         super().__init__(f"Request body exceeds {max_bytes} bytes")
         self.max_bytes = max_bytes
 
-
 class RequestSizeLimitMiddleware:
-
     def __init__(self, app, max_bytes: int = 1_048_576) -> None:
         self.app = app
         self.max_bytes = int(max_bytes)
@@ -101,7 +97,6 @@ class RequestSizeLimitMiddleware:
 
 
 class ConcurrencyLimitMiddleware:
-
     def __init__(
         self,
         app,
@@ -122,7 +117,6 @@ class ConcurrencyLimitMiddleware:
         if scope.get("type") != "http":
             await self.app(scope, receive, send)
             return
-
         try:
             await asyncio.wait_for(self._get_semaphore().acquire(), timeout=self._timeout)
         except asyncio.TimeoutError:

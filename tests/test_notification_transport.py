@@ -65,6 +65,7 @@ def test_send_smtp_with_retry_calls_aiosmtplib(monkeypatch):
 
     monkeypatch.setattr(aiosmtplib, "send", fake_send)
 
-    result = asyncio.run(transport.send_smtp_with_retry(message="m", hostname="h", port=25, username=None, password=None, start_tls=False, use_tls=False, timeout=5))
+    # timeout argument was removed from the helper
+    result = asyncio.run(transport.send_smtp_with_retry(message="m", hostname="h", port=25, username=None, password=None, start_tls=False, use_tls=False))
     assert result == "ok"
     assert called['kwargs']['hostname'] == "h"

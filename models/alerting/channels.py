@@ -14,7 +14,6 @@ from enum import Enum
 
 from .silences import Visibility
 
-# Description constants
 DESC_UNIQUE_IDENTIFIER = "Unique identifier"
 DESC_CHANNEL_NAME = "Channel name"
 DESC_CHANNEL_TYPE = "Channel type"
@@ -40,9 +39,8 @@ class NotificationChannel(BaseModel):
     enabled: bool = Field(True, description=DESC_CHANNEL_ENABLED)
     config: Dict[str, Any] = Field(..., description=DESC_CHANNEL_SPECIFIC_CONFIG)
     created_by: Optional[str] = Field(None, alias="createdBy", description="Owner user id")
-    visibility: Visibility = Field(Visibility.PRIVATE, description=DESC_VISIBILITY_SCOPE)  # Using str for now, can import Visibility if needed
+    visibility: Visibility = Field(Visibility.PRIVATE, description=DESC_VISIBILITY_SCOPE)  
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_CHANNEL_SHARED_WITH)
-
     model_config = ConfigDict(use_enum_values=True, populate_by_name=True)
 
 
@@ -53,5 +51,4 @@ class NotificationChannelCreate(BaseModel):
     config: Dict[str, Any] = Field(..., description=DESC_CHANNEL_SPECIFIC_CONFIG)
     visibility: Visibility = Field(Visibility.PRIVATE, description=DESC_VISIBILITY_SCOPE)
     shared_group_ids: List[str] = Field(default_factory=list, alias="sharedGroupIds", description=DESC_GROUP_IDS_SHARE_WITH)
-
     model_config = ConfigDict(use_enum_values=True, populate_by_name=True)

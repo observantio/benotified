@@ -1,23 +1,24 @@
+# services/storage/serializers.py
 """
-Serializers for the storage service, providing functions to serialize and deserialize data related to alert rules, incidents, and notification channels for storage in the database. This module includes logic to convert complex data structures into formats suitable for database storage, as well as to reconstruct those structures when retrieving data from the database. The serializers ensure that data is consistently formatted and can be easily stored and retrieved while maintaining the integrity of the information related to alerting and notification configurations.
+Serializers for the storage service.
 
 Copyright (c) 2026 Stefan Kumarasinghe
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+Licensed under the Apache License, Version 2.0
 """
 
+from __future__ import annotations
 
-from datetime import datetime, timezone
 import logging
+from datetime import datetime, timezone
 from typing import Any
+
+from models.alerting.channels import NotificationChannel as NotificationChannelPydantic
 from models.alerting.incidents import AlertIncident as AlertIncidentPydantic, IncidentStatus
 from models.alerting.rules import AlertRule as AlertRulePydantic
-from models.alerting.channels import NotificationChannel as NotificationChannelPydantic
-from services.common.meta import INCIDENT_META_KEY, _parse_meta, _safe_group_ids
+from services.common.meta import INCIDENT_META_KEY, parse_meta, _safe_group_ids
 
 logger = logging.getLogger(__name__)
+
 
 def rule_to_pydantic(r) -> AlertRulePydantic:
     payload = {
@@ -33,33 +34,33 @@ def rule_to_pydantic(r) -> AlertRulePydantic:
         "groupName": r.group,
         "notificationChannels": r.notification_channels or [],
         "visibility": r.visibility or "private",
-        "sharedGroupIds": [g.id for g in r.shared_groups] if r.shared_groups else [],
+        "sharedGroupIds": [g.id for g in r.shared_groups] if getattr(r, "shared_groups", None) else [],
     }
     return AlertRulePydantic.parse_obj(payload)
 
 
 def channel_to_pydantic(ch) -> NotificationChannelPydantic:
-    return channel_to_pydantic_for_viewer(ch, viewer_user_id=ch.created_by)
+    return channel_to_pydantic_for_viewer(ch, viewer_user_id=getattr(ch, "created_by", None))
 
 
 def channel_to_pydantic_for_viewer(ch, viewer_user_id: Any) -> NotificationChannelPydantic:
-    raw_config = ch.config or {}
+    raw_config = getattr(ch, "config", None) or {}
     payload = {
         "id": ch.id,
         "name": ch.name,
         "type": ch.type,
         "enabled": ch.enabled,
-        "config": raw_config if (ch.created_by and ch.created_by == viewer_user_id) else {},
+        "config": raw_config if (getattr(ch, "created_by", None) and ch.created_by == viewer_user_id) else {},
         "createdBy": ch.created_by,
         "visibility": ch.visibility or "private",
-        "sharedGroupIds": [g.id for g in ch.shared_groups] if ch.shared_groups else [],
+        "sharedGroupIds": [g.id for g in ch.shared_groups] if getattr(ch, "shared_groups", None) else [],
     }
     return NotificationChannelPydantic.parse_obj(payload)
 
 
 def incident_to_pydantic(incident) -> AlertIncidentPydantic:
     annotations = incident.annotations or {}
-    meta = _parse_meta(annotations)
+    meta = parse_meta(annotations)
 
     note_items = [
         {
@@ -67,7 +68,8 @@ def incident_to_pydantic(incident) -> AlertIncidentPydantic:
             "text": n.get("text", ""),
             "createdAt": n.get("createdAt") or datetime.now(timezone.utc),
         }
-        for n in (incident.notes or []) if isinstance(n, dict)
+        for n in (incident.notes or [])
+        if isinstance(n, dict)
     ]
 
     status_value = incident.status
@@ -80,10 +82,7 @@ def incident_to_pydantic(incident) -> AlertIncidentPydantic:
     if visibility_value not in {"public", "private", "group"}:
         visibility_value = "public"
 
-    safe_annotations = {
-        str(k): str(v) for k, v in annotations.items()
-        if k != INCIDENT_META_KEY and v is not None
-    }
+    safe_annotations = {str(k): str(v) for k, v in annotations.items() if k != INCIDENT_META_KEY and v is not None}
 
     payload = {
         "id": incident.id,

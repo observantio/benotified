@@ -5,4 +5,11 @@ __pycache__/
 *.pyo
 *.log
 *.db
+*.swp
+*.swo
+*.bak
+*.tmp
+*.zip
+*.tar.gz
+*.log
 .mypy_cache

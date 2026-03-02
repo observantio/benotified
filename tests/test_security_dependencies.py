@@ -38,8 +38,9 @@ def _request(ip: str, headers: list[tuple[bytes, bytes]] | None = None) -> Reque
 
 @pytest.fixture(autouse=True)
 def _reset_replay_cache():
-    with dependencies._jti_seen_lock:
-        dependencies._jti_seen_cache.clear()
+    # the underlying implementation renamed the lock/cache variables
+    with dependencies._jti_lock:
+        dependencies._jti_cache.clear()
 
 
 def test_verify_context_token_rejects_missing_jti(monkeypatch):
@@ -146,7 +147,7 @@ def test_get_current_user_rejects_missing_service_token(monkeypatch):
     )
     monkeypatch.setattr(config, "get_secret", lambda *_args, **_kwargs: "expected-service-token")
     monkeypatch.setattr(dependencies, "_verify_context_token", lambda _token: claims)
-    monkeypatch.setattr(dependencies, "_ensure_shadow_context", lambda _claims: None)
+    # shadow context no longer used; ignore
 
     request = _request(
         "203.0.113.10",
@@ -167,7 +168,7 @@ def test_get_current_user_rejects_invalid_context_with_valid_service_token(monke
             HTTPException(status_code=401, detail="Invalid context token")
         ),
     )
-    monkeypatch.setattr(dependencies, "_ensure_shadow_context", lambda _claims: None)
+    # shadow context no longer used; ignore
 
     request = _request(
         "203.0.113.10",

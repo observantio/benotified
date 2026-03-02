@@ -9,12 +9,10 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 from __future__ import annotations
-
 from typing import Optional
 
-_DEFAULT_ALLOWED: frozenset[str] = frozenset({"tenant", "group", "private"})
-_STORAGE_ALLOWED: frozenset[str] = frozenset({"public", "private", "group"})
-
+DEFAULT_ALLOWED: frozenset[str] = frozenset({"tenant", "group", "private"})
+STORAGE_ALLOWED: frozenset[str] = frozenset({"public", "private", "group"})
 
 def normalize_visibility(
     value: Optional[str],
@@ -23,15 +21,13 @@ def normalize_visibility(
     public_alias: str = "tenant",
     allowed: Optional[frozenset[str]] = None,
 ) -> str:
-    allowed_values = allowed if allowed is not None else _DEFAULT_ALLOWED
+    allowed_values = allowed if allowed is not None else DEFAULT_ALLOWED
 
     if default_value not in allowed_values:
         raise ValueError(f"default_value {default_value!r} is not in allowed {allowed_values}")
     if public_alias not in allowed_values:
         raise ValueError(f"public_alias {public_alias!r} is not in allowed {allowed_values}")
-
     normalized = (value or "").strip().lower()
-
     if not normalized:
         return default_value
     if normalized in allowed_values:
@@ -40,11 +36,9 @@ def normalize_visibility(
         return public_alias
     return default_value
 
-
 def normalize_storage_visibility(value: Optional[str]) -> str:
     normalized = (value or "").strip().lower()
-
-    if normalized in _STORAGE_ALLOWED:
+    if normalized in STORAGE_ALLOWED:
         return normalized
     if normalized == "tenant":
         return "public"

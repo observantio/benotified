@@ -18,7 +18,7 @@ except ImportError:
 ensure_test_env()
 
 from database import get_db_session
-from db_models import Tenant, User
+from db_models import Tenant
 from models.alerting.channels import ChannelType, NotificationChannelCreate
 from models.alerting.incidents import AlertIncidentUpdateRequest
 from models.alerting.rules import AlertRuleCreate, RuleSeverity
@@ -29,7 +29,7 @@ def _id(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex[:10]}"
 
 
-def _ensure_tenant_user(tenant_id: str, user_id: str) -> None:
+def _ensure_tenant(tenant_id: str) -> None:
     with get_db_session() as db:
         tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
         if tenant is None:
@@ -42,22 +42,10 @@ def _ensure_tenant_user(tenant_id: str, user_id: str) -> None:
                     settings={},
                 )
             )
-        user = db.query(User).filter(User.id == user_id).first()
-        if user is None:
-            db.add(
-                User(
-                    id=user_id,
-                    tenant_id=tenant_id,
-                    username=_id("user"),
-                    email=f"{_id('mail')}@example.com",
-                    hashed_password="not-used",
-                    full_name=user_id,
-                    org_id=tenant_id,
-                    role="user",
-                    is_active=True,
-                    is_superuser=False,
-                )
-            )
+
+
+def _ensure_tenant_user(tenant_id: str, user_id: str) -> None:
+    _ensure_tenant(tenant_id)
 
 
 @pytest.mark.skipif(
@@ -210,7 +198,7 @@ def test_incident_sync_idempotent_and_out_of_order_updates():
     service = DatabaseStorageService()
     tenant_id = _id("tenant")
     user_id = _id("user")
-    _ensure_tenant_user(tenant_id, user_id)
+    _ensure_tenant(tenant_id)
 
     fingerprint = _id("fp")
     alert_open = {

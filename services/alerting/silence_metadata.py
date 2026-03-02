@@ -10,28 +10,22 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import json
 from typing import Dict, List, Optional
-
 from models.alerting.silences import Visibility
 
-
 SILENCE_META_PREFIX = "[beobservant-meta]"
-
-_VALID_VISIBILITIES = {v.value for v in Visibility}
-
+VALID_VISIBILITIES = {v.value for v in Visibility}
 
 def normalize_visibility(value: Optional[str]) -> str:
     if isinstance(value, Visibility):
         return value.value
     normalized = str(value).lower() if value else ""
-    if normalized not in _VALID_VISIBILITIES:
+    if normalized not in VALID_VISIBILITIES:
         return Visibility.PRIVATE.value
     return normalized
-
 
 def encode_silence_comment(comment: str, visibility: str, shared_group_ids: List[str]) -> str:
     payload = json.dumps({"visibility": visibility, "shared_group_ids": shared_group_ids or []}, separators=(",", ":"))
     return f"{SILENCE_META_PREFIX}{payload}\n{comment}"
-
 
 def decode_silence_comment(comment: Optional[str]) -> Dict[str, object]:
     _default_visibility = Visibility.TENANT.value

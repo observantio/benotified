@@ -18,17 +18,14 @@ from . import transport
 
 logger = logging.getLogger(__name__)
 
-
 def _is_valid_email(addr: str) -> bool:
     return "@" in parseaddr(addr)[1]
-
 
 def _sanitize_recipients(recipients: list[str]) -> list[str]:
     valid = [r.strip() for r in recipients if _is_valid_email(r)]
     if not valid:
         raise ValueError("No valid recipient email addresses provided")
     return valid
-
 
 def build_smtp_message(subject: str, body: str, smtp_from: str, recipients: list[str]) -> EmailMessage:
     recipients = _sanitize_recipients(recipients)
@@ -38,7 +35,6 @@ def build_smtp_message(subject: str, body: str, smtp_from: str, recipients: list
     msg["To"] = ", ".join(recipients)
     msg.set_content(body)
     return msg
-
 
 async def send_via_sendgrid(
     client: httpx.AsyncClient,
@@ -80,7 +76,6 @@ async def send_via_sendgrid(
 
     return False
 
-
 async def send_via_resend(
     client: httpx.AsyncClient,
     api_key: str,
@@ -121,7 +116,6 @@ async def send_via_resend(
 
     return False
 
-
 async def send_via_smtp(
     message: EmailMessage,
     hostname: str,
@@ -130,7 +124,6 @@ async def send_via_smtp(
     password: str | None,
     start_tls: bool,
     use_tls: bool,
-    timeout: int | None = None,
 ) -> bool:
     if (username or password) and not (start_tls or use_tls):
         raise ValueError("SMTP authentication without TLS is insecure")
@@ -144,7 +137,6 @@ async def send_via_smtp(
             password=password,
             start_tls=start_tls,
             use_tls=use_tls,
-            timeout=timeout,
         )
         return True
     except Exception:

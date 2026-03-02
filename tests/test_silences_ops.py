@@ -47,13 +47,13 @@ class SilencesOpsTests(unittest.TestCase):
 
     def test_silence_accessible_for_creator_and_tenant_visibility(self):
         user = self._user(username='alice')
-        self.assertTrue(silence_accessible(None, self._silence(created_by='alice', visibility='private'), user))
-        self.assertTrue(silence_accessible(None, self._silence(created_by='bob', visibility='tenant'), user))
+        self.assertTrue(silence_accessible(self._silence(created_by='alice', visibility='private'), user))
+        self.assertTrue(silence_accessible(self._silence(created_by='bob', visibility='tenant'), user))
 
     def test_silence_accessible_for_group_visibility(self):
         user = self._user(username='alice', groups=['g1'])
         silence = self._silence(created_by='bob', visibility='group', shared_group_ids=['g2', 'g1'])
-        self.assertTrue(silence_accessible(None, silence, user))
+        self.assertTrue(silence_accessible(silence, user))
 
     def test_apply_silence_metadata_updates_fields(self):
         silence = self._silence()
