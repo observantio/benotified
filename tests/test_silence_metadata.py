@@ -42,6 +42,9 @@ class SilenceMetadataTests(unittest.TestCase):
     def test_normalize_visibility_rejects_invalid_value(self):
         self.assertEqual(normalize_visibility("invalid"), "private")
 
+    def test_normalize_visibility_maps_public_to_tenant(self):
+        self.assertEqual(normalize_visibility("public"), "tenant")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -29,7 +29,12 @@ def apply_silence_metadata(service, silence: Silence) -> Silence:
 
 def silence_accessible(silence: Silence, current_user: TokenData) -> bool:
     visibility = silence.visibility or Visibility.TENANT.value
-    if silence.created_by == current_user.username:
+    actor_ids = {
+        str(getattr(current_user, "username", "") or "").strip(),
+        str(getattr(current_user, "user_id", "") or "").strip(),
+    }
+    actor_ids.discard("")
+    if str(silence.created_by or "").strip() in actor_ids:
         return True
     if visibility == Visibility.TENANT.value:
         return True

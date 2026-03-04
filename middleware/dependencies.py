@@ -20,10 +20,13 @@ from typing import Optional
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 
 from config import config
+from database import get_db_session
 from middleware.rate_limit import enforce_ip_rate_limit, client_ip
-from models.access.auth_models import Permission, TokenData
+from models.access.auth_models import Permission, Role, TokenData
 
 logger = logging.getLogger(__name__)
 
@@ -90,13 +93,18 @@ def _verify_context_token(token: str) -> TokenData:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing context token jti")
     _assert_jti_not_replayed(jti)
 
+    role_raw = payload.get("role")
+    role_text = str(getattr(role_raw, "value", role_raw) or "").strip().lower()
+    if role_text not in {r.value for r in Role}:
+        role_text = Role.USER.value
+
     try:
         claims = TokenData(
             user_id=str(payload.get("user_id") or ""),
             username=str(payload.get("username") or ""),
             tenant_id=str(payload.get("tenant_id") or ""),
             org_id=str(payload.get("org_id") or payload.get("tenant_id") or ""),
-            role=payload.get("role") or "user",
+            role=role_text,
             is_superuser=bool(payload.get("is_superuser", False)),
             permissions=[str(p) for p in (payload.get("permissions") or [])],
             group_ids=[str(g) for g in (payload.get("group_ids") or [])],
@@ -108,6 +116,46 @@ def _verify_context_token(token: str) -> TokenData:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing required context claims")
 
     return claims
+
+
+def _normalize_group_ids(group_ids: list[object] | None) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for gid in group_ids or []:
+        value = str(gid or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        out.append(value)
+    return out
+
+
+def _load_live_group_ids(*, tenant_id: str, user_id: str, fallback_group_ids: list[str] | None = None) -> list[str]:
+    fallback = _normalize_group_ids(fallback_group_ids)
+    if not tenant_id or not user_id:
+        return fallback
+
+    sql = text(
+        """
+        SELECT ug.group_id
+        FROM user_groups AS ug
+        INNER JOIN groups AS g ON g.id = ug.group_id
+        WHERE ug.user_id = :user_id
+          AND g.tenant_id = :tenant_id
+          AND COALESCE(g.is_active, TRUE) = TRUE
+        """
+    )
+    try:
+        with get_db_session() as db:
+            rows = db.execute(sql, {"user_id": str(user_id), "tenant_id": str(tenant_id)}).all()
+            return _normalize_group_ids([row[0] for row in rows])
+    except SQLAlchemyError:
+        logger.exception(
+            "Failed to refresh live group memberships for user_id=%s tenant_id=%s",
+            user_id,
+            tenant_id,
+        )
+        return fallback
 
 
 def _assert_jti_not_replayed(jti: str) -> None:
@@ -130,7 +178,13 @@ def get_current_user(
     token = _extract_bearer_token(request, credentials)
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
-    return _verify_context_token(token)
+    claims = _verify_context_token(token)
+    claims.group_ids = _load_live_group_ids(
+        tenant_id=str(claims.tenant_id or ""),
+        user_id=str(claims.user_id or ""),
+        fallback_group_ids=getattr(claims, "group_ids", []) or [],
+    )
+    return claims
 
 
 def apply_scoped_rate_limit(_current_user: TokenData, _scope: str) -> None:

@@ -38,6 +38,7 @@ from models.alerting.silences import Silence, SilenceCreate, SilenceCreateReques
 from services.alerting.integration_security_service import (
     allowed_channel_types,
     tenant_id_from_scope_header,
+    validate_shared_group_ids_for_user,
 )
 from services.alerting.rule_import_service import RuleImportError, parse_rules_yaml
 from services.alertmanager_service import AlertManagerService
@@ -72,7 +73,15 @@ async def _sync_incidents(tenant_id: str, alerts, *, log_context: str) -> None:
 
 def _build_silence_payload(silence: SilenceCreateRequest, current_user: TokenData) -> SilenceCreate:
     visibility = alertmanager_service.normalize_visibility(silence.visibility)
-    shared_group_ids = silence.shared_group_ids if visibility == Visibility.GROUP.value else []
+    shared_group_ids = (
+        validate_shared_group_ids_for_user(
+            current_user.tenant_id,
+            silence.shared_group_ids or [],
+            current_user,
+        )
+        if visibility == Visibility.GROUP.value
+        else []
+    )
     return SilenceCreate.parse_obj(
         {
             "matchers": silence.matchers,

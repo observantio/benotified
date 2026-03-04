@@ -104,6 +104,39 @@ def test_verify_context_token_replay_detection(monkeypatch):
     assert exc.value.status_code == 401
 
 
+def test_verify_context_token_unknown_role_falls_back_to_user(monkeypatch):
+    key = "test-context-key"
+    monkeypatch.setattr(config, "BENOTIFIED_CONTEXT_VERIFY_KEY", key)
+    monkeypatch.setattr(config, "BENOTIFIED_CONTEXT_SIGNING_KEY", key)
+    monkeypatch.setattr(config, "BENOTIFIED_CONTEXT_ALGORITHM", "HS256")
+    monkeypatch.setattr(config, "BENOTIFIED_CONTEXT_AUDIENCE", "benotified")
+    setattr(config, "BENOTIFIED_CONTEXT_ISSUER", "beobservant-main")
+
+    now = datetime.now(timezone.utc)
+    token = jwt.encode(
+        {
+            "iss": "beobservant-main",
+            "aud": "benotified",
+            "iat": int(now.timestamp()),
+            "exp": int((now + timedelta(seconds=60)).timestamp()),
+            "jti": "role-fallback-jti-1",
+            "user_id": "u1",
+            "username": "user-1",
+            "tenant_id": "t1",
+            "org_id": "o1",
+            "role": "provisioning",
+            "permissions": [],
+            "group_ids": [],
+            "is_superuser": False,
+        },
+        key,
+        algorithm="HS256",
+    )
+    claims = dependencies._verify_context_token(token)
+    assert claims.user_id == "u1"
+    assert claims.role == Role.USER
+
+
 def test_public_endpoint_security_enforces_allowlist(monkeypatch):
     monkeypatch.setattr(dependencies, "enforce_ip_rate_limit", lambda *args, **kwargs: None)
     monkeypatch.setattr(config, "ALLOWLIST_FAIL_OPEN", False)
@@ -181,3 +214,50 @@ def test_get_current_user_rejects_invalid_context_with_valid_service_token(monke
     with pytest.raises(HTTPException) as exc:
         dependencies.get_current_user(request=request, credentials=None)
     assert exc.value.status_code == 401
+
+
+def test_get_current_user_refreshes_group_ids_from_db(monkeypatch):
+    claims = TokenData(
+        user_id="u1",
+        username="user-1",
+        tenant_id="t1",
+        org_id="t1",
+        role=Role.USER,
+        is_superuser=False,
+        permissions=[],
+        group_ids=["stale-group"],
+    )
+
+    class _DB:
+        @staticmethod
+        def execute(_sql, _params):
+            class _Rows:
+                @staticmethod
+                def all():
+                    return [("g1",), ("g2",), ("g1",)]
+
+            return _Rows()
+
+    class _Ctx:
+        @staticmethod
+        def __enter__():
+            return _DB()
+
+        @staticmethod
+        def __exit__(*args):
+            return False
+
+    monkeypatch.setattr(config, "get_secret", lambda *_args, **_kwargs: "expected-service-token")
+    monkeypatch.setattr(dependencies, "_verify_context_token", lambda _token: claims)
+    monkeypatch.setattr(dependencies, "get_db_session", lambda: _Ctx())
+
+    request = _request(
+        "203.0.113.10",
+        headers=[
+            (b"x-service-token", b"expected-service-token"),
+            (b"authorization", b"Bearer valid-context-token"),
+        ],
+    )
+
+    user = dependencies.get_current_user(request=request, credentials=None)
+    assert user.group_ids == ["g1", "g2"]
