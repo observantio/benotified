@@ -14,6 +14,7 @@ import logging
 import secrets
 import threading
 import time
+from functools import lru_cache
 from ipaddress import ip_address, ip_network
 from typing import Optional
 
@@ -225,19 +226,13 @@ def _enforce_ip_allowlist(request: Request, allowlist: str | None, *, scope: str
     if allowlist is None:
         return
 
-    networks = []
-    for entry in (e.strip() for e in allowlist.split(",") if e.strip()):
-        try:
-            if "/" in entry:
-                networks.append(ip_network(entry, strict=False))
-            else:
-                addr = ip_address(entry)
-                networks.append(ip_network(f"{entry}/{'32' if addr.version == 4 else '128'}", strict=False))
-        except ValueError:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Access denied for {scope}: invalid allowlist configuration",
-            )
+    try:
+        networks = list(_parse_allowlist_networks(allowlist))
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Access denied for {scope}: invalid allowlist configuration",
+        )
 
     if not networks:
         if config.ALLOWLIST_FAIL_OPEN:
@@ -260,3 +255,16 @@ def _enforce_ip_allowlist(request: Request, allowlist: str | None, *, scope: str
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Access denied for {scope}: source IP not allowed",
         )
+
+
+@lru_cache(maxsize=64)
+def _parse_allowlist_networks(allowlist: str) -> tuple:
+    networks = []
+    for entry in (e.strip() for e in allowlist.split(",") if e.strip()):
+        if "/" in entry:
+            networks.append(ip_network(entry, strict=False))
+            continue
+        addr = ip_address(entry)
+        suffix = "32" if addr.version == 4 else "128"
+        networks.append(ip_network(f"{entry}/{suffix}", strict=False))
+    return tuple(networks)

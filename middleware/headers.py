@@ -12,18 +12,26 @@ from __future__ import annotations
 
 from fastapi import Request
 
+_CSP_HEADER_VALUE = (
+    "default-src 'self'; "
+    "connect-src 'self' https:; "
+    "img-src 'self' data: https:; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "font-src 'self' https://fonts.gstatic.com;"
+)
+
+
+def _is_https_request(request: Request) -> bool:
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    return scheme == "https"
+
+
 async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
-    response.headers.setdefault(
-        "Content-Security-Policy",
-        "default-src 'self'; "
-        "connect-src 'self' https:; "
-        "img-src 'self' data: https:; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com;"
-    )
-    response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    response.headers.setdefault("Content-Security-Policy", _CSP_HEADER_VALUE)
+    if _is_https_request(request):
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
     return response
