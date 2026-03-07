@@ -53,7 +53,7 @@ def build_silence_payload(silence: SilenceCreateRequest, current_user: TokenData
             "matchers": silence.matchers,
             "startsAt": silence.starts_at,
             "endsAt": silence.ends_at,
-            "createdBy": current_user.username or current_user.user_id,
+            "createdBy": current_user.user_id,
             "comment": alertmanager_service.encode_silence_comment(silence.comment, visibility, shared_group_ids),
         }
     )

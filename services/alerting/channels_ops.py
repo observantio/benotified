@@ -14,6 +14,20 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
+def _is_suppressed(raw_status) -> bool:
+    if isinstance(raw_status, dict):
+        state_text = str(raw_status.get("state") or "").strip().lower()
+        if state_text == "suppressed":
+            return True
+        if raw_status.get("silencedBy"):
+            return True
+        if raw_status.get("inhibitedBy"):
+            return True
+        return False
+    return str(raw_status or "").strip().lower() == "suppressed"
+
+
 async def notify_for_alerts(service, tenant_id: str, alerts_list, storage_service, notification_service) -> None:
     for incoming_alert in alerts_list:
         labels = incoming_alert.get("labels", {}) or {}
@@ -50,6 +64,9 @@ async def notify_for_alerts(service, tenant_id: str, alerts_list, storage_servic
             continue
 
         raw_status = incoming_alert.get("status") or {}
+        if _is_suppressed(raw_status):
+            logger.info("Skipping notification for suppressed alert=%s tenant=%s", alertname, tenant_id)
+            continue
         silenced: list[str] = []
         inhibited: list[str] = []
         if isinstance(raw_status, dict):

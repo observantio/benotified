@@ -47,7 +47,7 @@ class SilencesOpsTests(unittest.TestCase):
 
     def test_silence_accessible_for_creator_and_tenant_visibility(self):
         user = self._user(username='alice')
-        self.assertTrue(silence_accessible(self._silence(created_by='alice', visibility='private'), user))
+        self.assertFalse(silence_accessible(self._silence(created_by='alice', visibility='private'), user))
         self.assertTrue(silence_accessible(self._silence(created_by='bob', visibility='tenant'), user))
 
     def test_silence_accessible_for_group_visibility(self):
@@ -60,9 +60,9 @@ class SilencesOpsTests(unittest.TestCase):
         silence = self._silence(created_by='u1', visibility='private')
         self.assertTrue(silence_accessible(silence, user))
 
-    def test_silence_owned_by_matches_username_or_user_id(self):
+    def test_silence_owned_by_matches_user_id_only(self):
         user = self._user(username='alice')
-        self.assertTrue(silence_owned_by(self._silence(created_by='alice', visibility='tenant'), user))
+        self.assertFalse(silence_owned_by(self._silence(created_by='alice', visibility='tenant'), user))
         self.assertTrue(silence_owned_by(self._silence(created_by='u1', visibility='tenant'), user))
         self.assertFalse(silence_owned_by(self._silence(created_by='bob', visibility='tenant'), user))
         self.assertFalse(silence_owned_by(self._silence(created_by='', visibility='tenant'), user))

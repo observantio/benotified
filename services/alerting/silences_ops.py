@@ -29,12 +29,8 @@ def apply_silence_metadata(service, silence: Silence) -> Silence:
 
 def silence_accessible(silence: Silence, current_user: TokenData) -> bool:
     visibility = silence.visibility or Visibility.TENANT.value
-    actor_ids = {
-        str(getattr(current_user, "username", "") or "").strip(),
-        str(getattr(current_user, "user_id", "") or "").strip(),
-    }
-    actor_ids.discard("")
-    if str(silence.created_by or "").strip() in actor_ids:
+    actor_id = str(getattr(current_user, "user_id", "") or "").strip()
+    if actor_id and str(silence.created_by or "").strip() == actor_id:
         return True
     if visibility == Visibility.TENANT.value:
         return True
@@ -48,12 +44,8 @@ def silence_owned_by(silence: Silence, current_user: TokenData) -> bool:
     owner = str(getattr(silence, "created_by", "") or "").strip()
     if not owner:
         return False
-    actor_ids = {
-        str(getattr(current_user, "username", "") or "").strip(),
-        str(getattr(current_user, "user_id", "") or "").strip(),
-    }
-    actor_ids.discard("")
-    return owner in actor_ids
+    actor_id = str(getattr(current_user, "user_id", "") or "").strip()
+    return bool(actor_id) and owner == actor_id
 
 
 async def prune_removed_member_group_silences(

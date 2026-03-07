@@ -134,6 +134,20 @@ def _merge_metric_states(annotations: Dict[str, Any], *states: str) -> str:
     return ",".join(merged)
 
 
+def _is_alert_suppressed(alert: Dict[str, Any]) -> bool:
+    raw_status = alert.get("status") or {}
+    if isinstance(raw_status, dict):
+        state_text = str(raw_status.get("state") or "").strip().lower()
+        if state_text == "suppressed":
+            return True
+        if raw_status.get("silencedBy"):
+            return True
+        if raw_status.get("inhibitedBy"):
+            return True
+        return False
+    return str(raw_status or "").strip().lower() == "suppressed"
+
+
 def _incident_access_allowed(
     *,
     visibility: str,
@@ -351,6 +365,8 @@ class IncidentStorageService:
         with get_db_session() as db:
             ensure_tenant_exists(db, tenant_id)
             for alert in alerts or []:
+                if _is_alert_suppressed(alert):
+                    continue
                 labels = alert.get("labels", {}) or {}
                 annotations = alert.get("annotations", {}) or {}
                 metric_state = _extract_metric_state(labels)

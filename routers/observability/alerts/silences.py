@@ -145,7 +145,7 @@ async def hide_silence(
         raise HTTPException(status_code=404, detail=f"Silence {silence_id} not found")
 
     owner = str(getattr(silence, "created_by", "") or "")
-    if owner and owner in {str(current_user.username or ""), str(current_user.user_id or "")}:
+    if owner and owner == str(current_user.user_id or ""):
         raise HTTPException(status_code=403, detail="You cannot hide your own silence")
 
     ok = await run_in_threadpool(
