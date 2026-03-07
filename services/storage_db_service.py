@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+
 from database import get_db_session
 from db_models import HiddenJiraIntegration, HiddenNotificationChannel, HiddenSilence
 from models.alerting.channels import NotificationChannel, NotificationChannelCreate
@@ -21,6 +23,7 @@ from models.alerting.rules import AlertRule, AlertRuleCreate
 
 from services.storage.channels import ChannelStorageService
 from services.storage.incidents import IncidentStorageService
+from services.storage.revocation import prune_removed_member_group_shares
 from services.storage.rules import RuleStorageService
 
 
@@ -99,8 +102,9 @@ class DatabaseStorageService:
         tenant_id: str,
         user_id: str,
         payload: AlertIncidentUpdateRequest,
+        group_ids: Optional[List[str]] = None,
     ) -> Optional[AlertIncident]:
-        return self.incidents.update_incident(incident_id, tenant_id, user_id, payload)
+        return self.incidents.update_incident(incident_id, tenant_id, user_id, payload, group_ids=group_ids)
 
     def filter_alerts_for_user(
         self,
@@ -239,8 +243,13 @@ class DatabaseStorageService:
     ) -> Dict[str, Any]:
         return self.channels.test_notification_channel(channel_id, tenant_id, user_id, group_ids=group_ids)
 
-    def get_notification_channels_for_rule_name(self, rule_name: str) -> List[NotificationChannel]:
-        return self.channels.get_notification_channels_for_rule_name(rule_name)
+    def get_notification_channels_for_rule_name(
+        self,
+        tenant_id: str,
+        rule_name: str,
+        org_id: Optional[str] = None,
+    ) -> List[NotificationChannel]:
+        return self.channels.get_notification_channels_for_rule_name(tenant_id, rule_name, org_id=org_id)
 
     def get_hidden_silence_ids(self, tenant_id: str, user_id: str) -> List[str]:
         with get_db_session() as db:
@@ -317,6 +326,22 @@ class DatabaseStorageService:
                     db.delete(existing)
             return True
 
+    def prune_removed_member_group_shares(
+        self,
+        tenant_id: str,
+        group_id: str,
+        removed_user_ids: Optional[List[str]] = None,
+        removed_usernames: Optional[List[str]] = None,
+    ) -> Dict[str, int]:
+        with get_db_session() as db:
+            return prune_removed_member_group_shares(
+                db,
+                tenant_id=tenant_id,
+                group_id=group_id,
+                removed_user_ids=removed_user_ids or [],
+                removed_usernames=removed_usernames or [],
+            )
+
     def get_hidden_jira_integration_ids(self, tenant_id: str, user_id: str) -> List[str]:
         with get_db_session() as db:
             rows = (
@@ -337,25 +362,32 @@ class DatabaseStorageService:
         hidden: bool,
     ) -> bool:
         with get_db_session() as db:
-            existing = (
-                db.query(HiddenJiraIntegration)
-                .filter(
-                    HiddenJiraIntegration.tenant_id == tenant_id,
-                    HiddenJiraIntegration.user_id == user_id,
-                    HiddenJiraIntegration.integration_id == integration_id,
-                )
-                .first()
-            )
             if hidden:
-                if not existing:
-                    db.add(
-                        HiddenJiraIntegration(
-                            tenant_id=tenant_id,
-                            user_id=user_id,
-                            integration_id=integration_id,
-                        )
+                db.execute(
+                    pg_insert(HiddenJiraIntegration)
+                    .values(
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        integration_id=integration_id,
                     )
+                    .on_conflict_do_nothing(
+                        index_elements=[
+                            HiddenJiraIntegration.tenant_id,
+                            HiddenJiraIntegration.user_id,
+                            HiddenJiraIntegration.integration_id,
+                        ]
+                    )
+                )
             else:
+                existing = (
+                    db.query(HiddenJiraIntegration)
+                    .filter(
+                        HiddenJiraIntegration.tenant_id == tenant_id,
+                        HiddenJiraIntegration.user_id == user_id,
+                        HiddenJiraIntegration.integration_id == integration_id,
+                    )
+                    .first()
+                )
                 if existing:
                     db.delete(existing)
             return True

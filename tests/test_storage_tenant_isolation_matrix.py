@@ -244,6 +244,27 @@ def test_channel_tenant_isolation_matrix():
     not __import__("database", fromlist=[""]).connection_test(),
     reason="DB not available",
 )
+def test_toggle_jira_hidden_is_idempotent():
+    service = DatabaseStorageService()
+    tenant_id = _id("tenant")
+    user_id = _id("user")
+    integration_id = _id("jira")
+    _ensure_tenant_user(tenant_id, user_id)
+
+    assert service.toggle_jira_integration_hidden(tenant_id, user_id, integration_id, True) is True
+    assert service.toggle_jira_integration_hidden(tenant_id, user_id, integration_id, True) is True
+
+    hidden_ids = service.get_hidden_jira_integration_ids(tenant_id, user_id)
+    assert hidden_ids.count(integration_id) == 1
+
+    assert service.toggle_jira_integration_hidden(tenant_id, user_id, integration_id, False) is True
+    assert integration_id not in service.get_hidden_jira_integration_ids(tenant_id, user_id)
+
+
+@pytest.mark.skipif(
+    not __import__("database", fromlist=[""]).connection_test(),
+    reason="DB not available",
+)
 def test_incident_sync_idempotent_and_out_of_order_updates():
     service = DatabaseStorageService()
     tenant_id = _id("tenant")
@@ -276,3 +297,63 @@ def test_incident_sync_idempotent_and_out_of_order_updates():
     reopened = service.list_incidents(tenant_id, user_id, group_ids=[], status="open")
     assert len(reopened) == 1
     assert reopened[0].severity == "warning"
+
+
+@pytest.mark.skipif(
+    not __import__("database", fromlist=[""]).connection_test(),
+    reason="DB not available",
+)
+def test_group_incident_requires_active_group_membership_even_for_creator():
+    service = DatabaseStorageService()
+    tenant_id = _id("tenant")
+    owner_id = _id("owner")
+    _ensure_tenant_user(tenant_id, owner_id)
+
+    rule = service.create_alert_rule(
+        AlertRuleCreate(
+            name=_id("group-rule"),
+            expression="up == 0",
+            severity=RuleSeverity.WARNING,
+            groupName="group-incidents",
+            enabled=True,
+            labels={},
+            annotations={},
+            visibility="group",
+            sharedGroupIds=["g1"],
+        ),
+        tenant_id,
+        owner_id,
+        group_ids=["g1"],
+    )
+    assert rule is not None
+
+    service.sync_incidents_from_alerts(
+        tenant_id,
+        [
+            {
+                "fingerprint": _id("fp-group"),
+                "labels": {"alertname": rule.name, "severity": "critical"},
+                "annotations": {"summary": "group incident"},
+            }
+        ],
+        False,
+    )
+
+    visible_with_group = service.list_incidents(tenant_id, owner_id, group_ids=["g1"])
+    assert len(visible_with_group) == 1
+    incident_id = visible_with_group[0].id
+
+    hidden_without_group = service.list_incidents(tenant_id, owner_id, group_ids=[])
+    assert hidden_without_group == []
+
+    assert service.get_incident_for_user(incident_id, tenant_id, owner_id, group_ids=[]) is None
+    assert (
+        service.update_incident(
+            incident_id,
+            tenant_id,
+            owner_id,
+            AlertIncidentUpdateRequest(note="should-not-work"),
+            group_ids=[],
+        )
+        is None
+    )

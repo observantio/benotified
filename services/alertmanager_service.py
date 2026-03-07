@@ -58,6 +58,7 @@ from services.alerting.silences_ops import (
     delete_silence as delete_silence_ops,
     get_silence as get_silence_ops,
     get_silences as get_silences_ops,
+    prune_removed_member_group_silences as prune_removed_member_group_silences_ops,
     silence_accessible as silence_accessible_ops,
     silence_owned_by as silence_owned_by_ops,
     update_silence as update_silence_ops,
@@ -156,8 +157,8 @@ class AlertManagerService:
     def _extract_mimir_group_names(self, namespace_yaml: str) -> List[str]:
         return extract_mimir_group_names(namespace_yaml)
 
-    async def notify_for_alerts(self, alerts_list, storage_service, notification_service) -> None:
-        return await notify_for_alerts_ops(self, alerts_list, storage_service, notification_service)
+    async def notify_for_alerts(self, tenant_id: str, alerts_list, storage_service, notification_service) -> None:
+        return await notify_for_alerts_ops(self, tenant_id, alerts_list, storage_service, notification_service)
 
     async def list_metric_names(self, org_id: str) -> List[str]:
         return await list_metric_names_ops(self, org_id)
@@ -196,6 +197,20 @@ class AlertManagerService:
 
     async def update_silence(self, silence_id: str, silence: SilenceCreate) -> Optional[str]:
         return await update_silence_ops(self, silence_id, silence)
+
+    async def prune_removed_member_group_silences(
+        self,
+        *,
+        group_id: str,
+        removed_user_ids: Optional[List[str]] = None,
+        removed_usernames: Optional[List[str]] = None,
+    ) -> int:
+        return await prune_removed_member_group_silences_ops(
+            self,
+            group_id=group_id,
+            removed_user_ids=removed_user_ids,
+            removed_usernames=removed_usernames,
+        )
 
     async def delete_silence(self, silence_id: str) -> bool:
         if not await delete_silence_ops(self, silence_id):

@@ -48,6 +48,74 @@ def _shared_group_ids(db_obj) -> List[str]:
     return [g.id for g in db_obj.shared_groups] if getattr(db_obj, "shared_groups", None) else []
 
 
+INCIDENT_META_KEY_IDENTITY = "incident_key"
+
+
+def incident_scope_hint_from_labels(labels: Dict[str, Any]) -> str:
+    for key in ("org_id", "orgId", "tenant", "product"):
+        value = str((labels or {}).get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def incident_key_from_labels(labels: Dict[str, Any]) -> Optional[str]:
+    alert_name = str((labels or {}).get("alertname") or "").strip()
+    if not alert_name:
+        return None
+    scope_hint = incident_scope_hint_from_labels(labels) or "*"
+    return f"rule:{alert_name}|scope:{scope_hint}"
+
+
+def incident_key_from_db_row(incident: AlertIncidentDB) -> Optional[str]:
+    annotations = incident.annotations if isinstance(incident.annotations, dict) else {}
+    meta = parse_meta(annotations)
+    key = str(meta.get(INCIDENT_META_KEY_IDENTITY) or "").strip()
+    if key:
+        return key
+
+    labels = incident.labels if isinstance(incident.labels, dict) else {}
+    fallback_key = incident_key_from_labels(labels)
+    if fallback_key:
+        return fallback_key
+
+    alert_name = str(getattr(incident, "alert_name", "") or "").strip()
+    if not alert_name:
+        return None
+    return f"rule:{alert_name}|scope:*"
+
+
+def incident_activity_token_from_row(incident: AlertIncidentDB) -> str:
+    key = incident_key_from_db_row(incident)
+    if key:
+        return f"k:{key}"
+    return f"fp:{str(getattr(incident, 'fingerprint', '') or '')}"
+
+
+def _incident_access_allowed(
+    *,
+    visibility: str,
+    creator_id: Optional[str],
+    user_id: str,
+    shared_group_ids: List[str],
+    user_group_ids: List[str],
+    require_write: bool = False,
+) -> bool:
+    # Group incidents are always group-membership scoped, even for original creator.
+    if visibility == "group":
+        return bool(set(shared_group_ids) & set(user_group_ids))
+    # For non-group incidents, preserve existing incident behavior where mutation
+    # follows visibility/read access rather than owner-only writes.
+    return has_access(
+        visibility,
+        creator_id,
+        user_id,
+        shared_group_ids,
+        user_group_ids,
+        require_write=False,
+    )
+
+
 def _resolve_rule_by_alertname(db: Session, tenant_id: str, labels: Dict[str, Any]) -> Optional[AlertRuleDB]:
     alertname = labels.get("alertname")
     if not alertname:
@@ -209,12 +277,12 @@ class IncidentStorageService:
                     inc_visibility = "public"
 
                 creator_id = str(meta.get("created_by") or "") or None
-                if not has_access(
-                    inc_visibility,
-                    creator_id,
-                    user_id,
-                    _safe_group_ids(meta),
-                    group_ids,
+                if not _incident_access_allowed(
+                    visibility=inc_visibility,
+                    creator_id=creator_id,
+                    user_id=user_id,
+                    shared_group_ids=_safe_group_ids(meta),
+                    user_group_ids=group_ids,
                 ):
                     continue
 
@@ -236,13 +304,14 @@ class IncidentStorageService:
 
     def sync_incidents_from_alerts(self, tenant_id: str, alerts: List[Dict[str, Any]], resolve_missing: bool = True) -> None:
         now = datetime.now(timezone.utc)
-        active_fingerprints: set[str] = set()
+        active_incident_tokens: set[str] = set()
 
         with get_db_session() as db:
             ensure_tenant_exists(db, tenant_id)
             for alert in alerts or []:
                 labels = alert.get("labels", {}) or {}
                 annotations = alert.get("annotations", {}) or {}
+                incident_key = incident_key_from_labels(labels)
                 fingerprint = alert.get("fingerprint") or labels.get("fingerprint")
 
                 if not fingerprint:
@@ -258,13 +327,31 @@ class IncidentStorageService:
                     )
                     fingerprint = f"derived-{hashlib.sha256(stable_blob.encode()).hexdigest()}"
 
-                active_fingerprints.add(fingerprint)
+                active_incident_tokens.add(f"k:{incident_key}" if incident_key else f"fp:{fingerprint}")
 
-                incident = (
-                    db.query(AlertIncidentDB)
-                    .filter(AlertIncidentDB.tenant_id == tenant_id, AlertIncidentDB.fingerprint == fingerprint)
-                    .first()
-                )
+                incident: Optional[AlertIncidentDB] = None
+                if incident_key:
+                    alert_name = str(labels.get("alertname") or "").strip()
+                    if alert_name:
+                        candidates = (
+                            db.query(AlertIncidentDB)
+                            .filter(
+                                AlertIncidentDB.tenant_id == tenant_id,
+                                AlertIncidentDB.alert_name == alert_name,
+                            )
+                            .order_by(AlertIncidentDB.updated_at.desc())
+                            .all()
+                        )
+                        incident = next(
+                            (item for item in candidates if incident_key_from_db_row(item) == incident_key),
+                            None,
+                        )
+                if not incident:
+                    incident = (
+                        db.query(AlertIncidentDB)
+                        .filter(AlertIncidentDB.tenant_id == tenant_id, AlertIncidentDB.fingerprint == fingerprint)
+                        .first()
+                    )
 
                 parsed_starts = None
                 starts_at = alert.get("startsAt") or alert.get("starts_at")
@@ -281,6 +368,7 @@ class IncidentStorageService:
                         "visibility": (rule.visibility or "public") if rule else "public",
                         "shared_group_ids": _shared_group_ids(rule) if rule else [],
                         "created_by": rule.created_by if rule else None,
+                        INCIDENT_META_KEY_IDENTITY: incident_key,
                     }
                     incident = AlertIncidentDB(
                         id=str(uuid.uuid4()),
@@ -315,6 +403,8 @@ class IncidentStorageService:
                     existing_meta["shared_group_ids"] = _shared_group_ids(rule)
                     if rule.created_by:
                         existing_meta["created_by"] = rule.created_by
+                if incident_key:
+                    existing_meta[INCIDENT_META_KEY_IDENTITY] = incident_key
 
                 incident.annotations = {**annotations, INCIDENT_META_KEY: json.dumps(existing_meta)}
                 if parsed_starts and not incident.starts_at:
@@ -350,7 +440,7 @@ class IncidentStorageService:
                 for incident in open_incidents.all():
                     if parse_meta(incident.annotations or {}).get("user_managed"):
                         continue
-                    if incident.fingerprint not in active_fingerprints:
+                    if incident_activity_token_from_row(incident) not in active_incident_tokens:
                         incident.status = "resolved"
                         incident.resolved_at = now
 
@@ -399,21 +489,19 @@ class IncidentStorageService:
                     if group_id not in group_ids or inc_visibility != "group" or group_id not in shared_group_ids:
                         continue
 
-                if creator_id == user_id:
-                    result.append(incident_to_pydantic(incident))
+                if not _incident_access_allowed(
+                    visibility=inc_visibility,
+                    creator_id=str(creator_id or "") or None,
+                    user_id=user_id,
+                    shared_group_ids=shared_group_ids,
+                    user_group_ids=group_ids,
+                ):
                     continue
 
-                if inc_visibility == "public":
-                    if not group_id:
-                        result.append(incident_to_pydantic(incident))
+                if inc_visibility == "public" and group_id:
                     continue
 
-                if inc_visibility == "group":
-                    if group_id:
-                        if group_id in group_ids and group_id in shared_group_ids:
-                            result.append(incident_to_pydantic(incident))
-                    elif group_ids and set(group_ids) & set(shared_group_ids):
-                        result.append(incident_to_pydantic(incident))
+                result.append(incident_to_pydantic(incident))
 
             return result
 
@@ -440,12 +528,12 @@ class IncidentStorageService:
                 if inc_visibility not in {"public", "private", "group"}:
                     inc_visibility = "public"
                 creator_id = str(meta.get("created_by") or "") or None
-                if not has_access(
-                    inc_visibility,
-                    creator_id,
-                    user_id,
-                    _safe_group_ids(meta),
-                    group_ids,
+                if not _incident_access_allowed(
+                    visibility=inc_visibility,
+                    creator_id=creator_id,
+                    user_id=user_id,
+                    shared_group_ids=_safe_group_ids(meta),
+                    user_group_ids=group_ids,
                     require_write=require_write,
                 ):
                     return None
@@ -457,7 +545,9 @@ class IncidentStorageService:
         tenant_id: str,
         user_id: str,
         payload: AlertIncidentUpdateRequest,
+        group_ids: Optional[List[str]] = None,
     ) -> Optional[AlertIncident]:
+        user_group_ids = [str(g).strip() for g in (group_ids or []) if str(g).strip()]
         with get_db_session() as db:
             incident = (
                 db.query(AlertIncidentDB)
@@ -472,6 +562,16 @@ class IncidentStorageService:
 
             meta = parse_meta(incident.annotations or {})
             visibility = normalize_storage_visibility(str(meta.get("visibility") or "public"))
+            creator_id = str(meta.get("created_by") or "") or None
+            if not _incident_access_allowed(
+                visibility=visibility,
+                creator_id=creator_id,
+                user_id=user_id,
+                shared_group_ids=_safe_group_ids(meta),
+                user_group_ids=user_group_ids,
+                require_write=True,
+            ):
+                return None
 
             if payload.assignee is not None:
                 requested_assignee = payload.assignee.strip() or None

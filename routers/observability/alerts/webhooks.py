@@ -21,7 +21,7 @@ async def alert_webhook(request: Request, payload: AlertWebhookRequest = Body(..
     logger.info("Received webhook payload with %d alerts", len(payload.alerts))
     tenant_id = tenant_id_from_scope_header(scope_header(request))
     await sync_incidents(tenant_id, payload.alerts, log_context="webhook")
-    await alertmanager_service.notify_for_alerts(payload.alerts, storage_service, notification_service)
+    await alertmanager_service.notify_for_alerts(tenant_id, payload.alerts, storage_service, notification_service)
     return {"status": constants.STATUS_SUCCESS, "count": len(payload.alerts)}
 
 
@@ -32,7 +32,7 @@ async def alert_critical(request: Request, payload: AlertWebhookRequest = Body(.
     logger.warning("Received %d critical alerts", len(payload.alerts))
     tenant_id = tenant_id_from_scope_header(scope_header(request))
     await sync_incidents(tenant_id, payload.alerts, log_context="critical webhook")
-    await alertmanager_service.notify_for_alerts(payload.alerts, storage_service, notification_service)
+    await alertmanager_service.notify_for_alerts(tenant_id, payload.alerts, storage_service, notification_service)
     return {"status": constants.STATUS_SUCCESS, "severity": "critical", "count": len(payload.alerts)}
 
 
@@ -43,5 +43,5 @@ async def alert_warning(request: Request, payload: AlertWebhookRequest = Body(..
     logger.info("Received warning alerts payload with %d alerts", len(payload.alerts))
     tenant_id = tenant_id_from_scope_header(scope_header(request))
     await sync_incidents(tenant_id, payload.alerts, log_context="warning webhook")
-    await alertmanager_service.notify_for_alerts(payload.alerts, storage_service, notification_service)
+    await alertmanager_service.notify_for_alerts(tenant_id, payload.alerts, storage_service, notification_service)
     return {"status": constants.STATUS_SUCCESS, "severity": "warning", "count": len(payload.alerts)}

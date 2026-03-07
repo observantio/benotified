@@ -14,14 +14,25 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-async def notify_for_alerts(service, alerts_list, storage_service, notification_service) -> None:
+async def notify_for_alerts(service, tenant_id: str, alerts_list, storage_service, notification_service) -> None:
     for incoming_alert in alerts_list:
-        alertname = incoming_alert.get("labels", {}).get("alertname")
+        labels = incoming_alert.get("labels", {}) or {}
+        alertname = labels.get("alertname")
         if not alertname:
             logger.debug("Alert without alertname label, skipping")
             continue
 
-        channels = storage_service.get_notification_channels_for_rule_name(alertname)
+        org_id = (
+            labels.get("org_id")
+            or labels.get("orgId")
+            or labels.get("tenant")
+            or labels.get("product")
+        )
+        channels = storage_service.get_notification_channels_for_rule_name(
+            tenant_id,
+            alertname,
+            org_id=org_id,
+        )
         if not channels:
             logger.info("No notification channels configured for rule %s", alertname)
             continue

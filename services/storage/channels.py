@@ -26,6 +26,7 @@ from services.common.access import has_access, assign_shared_groups
 from services.common.encryption import decrypt_config, encrypt_config
 from services.common.pagination import cap_pagination
 from services.common.tenants import ensure_tenant_exists
+from services.common.visibility import normalize_storage_visibility
 from services.storage.serializers import channel_to_pydantic, channel_to_pydantic_for_viewer
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,28 @@ def _shared_group_ids(db_obj) -> List[str]:
 
 
 class ChannelStorageService:
+    @staticmethod
+    def _rule_channel_compatible(rule, channel) -> bool:
+        rule_visibility = normalize_storage_visibility(getattr(rule, "visibility", None))
+        channel_visibility = normalize_storage_visibility(getattr(channel, "visibility", None))
+        rule_owner = str(getattr(rule, "created_by", "") or "").strip()
+        channel_owner = str(getattr(channel, "created_by", "") or "").strip()
+        rule_groups = {str(g.id) for g in (getattr(rule, "shared_groups", None) or []) if str(getattr(g, "id", "")).strip()}
+        channel_groups = {str(g.id) for g in (getattr(channel, "shared_groups", None) or []) if str(getattr(g, "id", "")).strip()}
+
+        # Private rules can only trigger private owner-bound channels.
+        if rule_visibility == "private":
+            return channel_visibility == "private" and rule_owner and rule_owner == channel_owner
+
+        # Group rules can only trigger tenant/public channels or channels shared to overlapping groups.
+        if rule_visibility == "group":
+            if channel_visibility == "group":
+                return bool(rule_groups & channel_groups)
+            return channel_visibility == "public"
+
+        # Tenant/public rules can only trigger tenant/public channels.
+        return channel_visibility == "public"
+
     def get_notification_channels(
         self,
         tenant_id: str,
@@ -211,22 +234,43 @@ class ChannelStorageService:
         logger.info("Testing channel: %s (%s)", channel.name, channel.type)
         return {"success": True, "message": f"Test notification would be sent to {channel.type} channel: {channel.name}"}
 
-    def get_notification_channels_for_rule_name(self, rule_name: str) -> List[NotificationChannel]:
+    def get_notification_channels_for_rule_name(
+        self,
+        tenant_id: str,
+        rule_name: str,
+        org_id: Optional[str] = None,
+    ) -> List[NotificationChannel]:
         with get_db_session() as db:
             rules = (
                 db.query(AlertRuleDB)
+                .options(joinedload(AlertRuleDB.shared_groups))
                 .filter(AlertRuleDB.name == rule_name, AlertRuleDB.enabled.is_(True))
+                .filter(AlertRuleDB.tenant_id == tenant_id)
                 .limit(int(app_config.MAX_QUERY_LIMIT))
                 .all()
             )
+            if org_id:
+                org_matched = [r for r in rules if str(getattr(r, "org_id", "") or "") == str(org_id)]
+                rules = org_matched or [r for r in rules if not getattr(r, "org_id", None)] or rules
 
             results: List[NotificationChannel] = []
+            seen_ids: set[str] = set()
             for r in rules:
-                q = db.query(NotificationChannelDB).filter(NotificationChannelDB.tenant_id == r.tenant_id)
+                q = (
+                    db.query(NotificationChannelDB)
+                    .options(joinedload(NotificationChannelDB.shared_groups))
+                    .filter(NotificationChannelDB.tenant_id == r.tenant_id)
+                    .filter(NotificationChannelDB.enabled.is_(True))
+                )
                 if r.notification_channels:
                     q = q.filter(NotificationChannelDB.id.in_(r.notification_channels))
                 for ch in q.limit(int(app_config.MAX_QUERY_LIMIT)).all():
+                    if ch.id in seen_ids:
+                        continue
+                    if not self._rule_channel_compatible(r, ch):
+                        continue
                     raw_cfg = decrypt_config(cast(Dict[str, Any], getattr(ch, "config") or {}))
                     setattr(ch, "config", raw_cfg)
                     results.append(channel_to_pydantic(ch))
+                    seen_ids.add(str(ch.id))
             return results

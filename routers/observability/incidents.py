@@ -27,6 +27,7 @@ from services.incidents.helpers import (
 )
 from services.storage_db_service import DatabaseStorageService
 from services.notification_service import NotificationService
+from services.storage.incidents import incident_key_from_labels
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,7 @@ async def patch_incident(
         current_user.tenant_id,
         current_user.user_id,
         group_ids,
+        True,
     )
     if not existing:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found")
@@ -91,11 +93,19 @@ async def patch_incident(
     if payload.status is not None:
         status_str = payload.status.value if hasattr(payload.status, "value") else str(payload.status)
         if status_str.lower() == "resolved":
+            existing_incident_key = incident_key_from_labels(existing.labels or {})
             try:
-                active_alerts = await alertmanager_service.get_alerts(
-                    filter_labels={"fingerprint": existing.fingerprint},
-                    active=True,
-                )
+                if existing_incident_key:
+                    active_alerts = [
+                        alert
+                        for alert in (await alertmanager_service.get_alerts(active=True))
+                        if incident_key_from_labels(getattr(alert, "labels", {}) or {}) == existing_incident_key
+                    ]
+                else:
+                    active_alerts = await alertmanager_service.get_alerts(
+                        filter_labels={"fingerprint": existing.fingerprint},
+                        active=True,
+                    )
             except Exception:
                 active_alerts = []
             if active_alerts:
@@ -114,6 +124,7 @@ async def patch_incident(
         current_user.tenant_id,
         current_user.user_id,
         enriched_payload,
+        group_ids,
     )
     if not updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found")
@@ -127,6 +138,7 @@ async def patch_incident(
                 current_user.tenant_id,
                 current_user.user_id,
                 AlertIncidentUpdateRequest(note=assignment_note),
+                group_ids,
             )
         except Exception:
             logger.exception("Failed to record assignment note for incident %s", incident_id)

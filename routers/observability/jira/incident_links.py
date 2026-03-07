@@ -42,6 +42,7 @@ async def create_incident_jira(
         current_user.tenant_id,
         current_user.user_id,
         group_ids,
+        True,
     )
     if not incident:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found")
@@ -107,6 +108,7 @@ async def create_incident_jira(
             jiraTicketUrl=response.get("url") or None,
             jiraIntegrationId=integration_id,
         ),
+        group_ids,
     )
     if not updated:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to persist Jira metadata")
@@ -140,6 +142,7 @@ async def sync_incident_jira_notes(
         current_user.tenant_id,
         current_user.user_id,
         group_ids,
+        True,
     )
     if not incident:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Incident not found")

@@ -66,3 +66,10 @@ class IncidentJiraCreateRequest(BaseModel):
     description: Optional[str] = None
     issueType: Optional[str] = None
     replaceExisting: bool = False
+
+
+class GroupSharePruneRequest(BaseModel):
+    tenant_id: str = Field(..., alias="tenantId")
+    group_id: str = Field(..., alias="groupId")
+    removed_user_ids: List[str] = Field(default_factory=list, alias="removedUserIds")
+    removed_usernames: List[str] = Field(default_factory=list, alias="removedUsernames")

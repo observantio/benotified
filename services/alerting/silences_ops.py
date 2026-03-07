@@ -56,6 +56,62 @@ def silence_owned_by(silence: Silence, current_user: TokenData) -> bool:
     return owner in actor_ids
 
 
+async def prune_removed_member_group_silences(
+    service,
+    *,
+    group_id: str,
+    removed_user_ids: Optional[List[str]] = None,
+    removed_usernames: Optional[List[str]] = None,
+) -> int:
+    target_group_id = str(group_id or "").strip()
+    if not target_group_id:
+        return 0
+
+    removed_identifiers = {
+        str(v or "").strip()
+        for v in (removed_user_ids or []) + (removed_usernames or [])
+        if str(v or "").strip()
+    }
+    removed_identifiers_lower = {v.lower() for v in removed_identifiers}
+    if not removed_identifiers:
+        return 0
+
+    silences = await get_silences(service, filter_labels=None)
+    updated = 0
+    for silence in silences:
+        silence = apply_silence_metadata(service, silence)
+        if str(silence.visibility or Visibility.TENANT.value) != Visibility.GROUP.value:
+            continue
+        if not silence.id:
+            continue
+
+        owner = str(getattr(silence, "created_by", "") or "").strip()
+        if not owner:
+            continue
+        if owner not in removed_identifiers and owner.lower() not in removed_identifiers_lower:
+            continue
+
+        shared = [str(g).strip() for g in (silence.shared_group_ids or []) if str(g).strip()]
+        if target_group_id not in shared:
+            continue
+        remaining = [gid for gid in shared if gid != target_group_id]
+        next_visibility = Visibility.GROUP.value if remaining else Visibility.PRIVATE.value
+
+        payload = SilenceCreate.model_validate(
+            {
+                "matchers": silence.matchers,
+                "startsAt": silence.starts_at,
+                "endsAt": silence.ends_at,
+                "createdBy": silence.created_by,
+                "comment": service.encode_silence_comment(silence.comment, next_visibility, remaining),
+            }
+        )
+        new_id = await update_silence(service, silence.id, payload)
+        if new_id:
+            updated += 1
+    return updated
+
+
 async def get_silences(service, filter_labels: Optional[Dict[str, str]] = None) -> List[Silence]:
     params = {}
     if filter_labels:

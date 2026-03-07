@@ -87,3 +87,56 @@ async def test_patch_incident_sends_assignment_email(monkeypatch):
     assert called['args'][0] == "bob@example.com"
     assert called['args'][1] == "Alert1"
     assert called['args'][3] == "critical"
+
+
+@pytest.mark.asyncio
+async def test_patch_incident_requests_write_access_for_existing_incident(monkeypatch):
+    existing = AlertIncident(
+        id="i2",
+        fingerprint="fp2",
+        alertName="Alert2",
+        severity="warning",
+        status=IncidentStatus.OPEN,
+        assignee=None,
+        notes=[],
+        labels={},
+        annotations={},
+        visibility="group",
+        sharedGroupIds=["g1"],
+        lastSeenAt="2023-01-01T00:00:00Z",
+        createdAt="2023-01-01T00:00:00Z",
+        updatedAt="2023-01-01T00:00:00Z",
+        userManaged=False,
+        hideWhenResolved=False,
+    )
+    updated = existing
+
+    captured = {}
+
+    def fake_get_incident_for_user(*args, **kwargs):
+        captured["existing_args"] = args
+        return existing
+
+    def fake_update_incident(*args, **kwargs):
+        captured["update_args"] = args
+        return updated
+
+    monkeypatch.setattr(storage_service, "get_incident_for_user", fake_get_incident_for_user)
+    monkeypatch.setattr(storage_service, "update_incident", fake_update_incident)
+
+    user = TokenData(
+        user_id="u1",
+        username="alice",
+        tenant_id="t1",
+        org_id="o1",
+        role="user",
+        permissions=[],
+        group_ids=["g1"],
+        is_superuser=False,
+    )
+
+    payload = AlertIncidentUpdateRequest()
+    await patch_incident("i2", payload, current_user=user)
+
+    assert captured["existing_args"][5] is True
+    assert captured["update_args"][5] == ["g1"]
