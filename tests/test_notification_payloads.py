@@ -98,3 +98,22 @@ def test_payloads_include_human_context_fields_when_present():
     assert facts["Correlation ID"] == "core-infra"
     assert facts["Created by"] == "alice"
     assert facts["Product"] == "Payments API"
+
+
+def test_test_action_is_rendered_as_test_status():
+    a = _make_alert()
+    body = notification_payloads.format_alert_body(a, "test")
+    assert "Status: TEST" in body
+
+    slack = notification_payloads.build_slack_payload(a, "test")
+    assert slack["attachments"][0]["title"].startswith("[TEST]")
+    slack_fields = {f["title"]: f["value"] for f in slack["attachments"][0]["fields"]}
+    assert slack_fields["Status"] == "TEST"
+
+    teams = notification_payloads.build_teams_payload(a, "test")
+    assert teams["title"].startswith("[TEST]")
+    teams_facts = {f["name"]: f["value"] for f in teams["sections"][0]["facts"]}
+    assert teams_facts["Status"] == "TEST"
+
+    pd = notification_payloads.build_pagerduty_payload(a, "test", "rk1")
+    assert pd["event_action"] == "trigger"

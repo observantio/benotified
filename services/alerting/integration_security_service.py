@@ -15,13 +15,14 @@ from typing import Dict, List, Optional
 
 from cryptography.fernet import Fernet
 from fastapi import HTTPException, status
+from sqlalchemy import and_
 from sqlalchemy.orm.attributes import flag_modified
 
 from config import config
 from database import get_db_session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from db_models import Tenant
+from db_models import AlertRule, Tenant
 from models.access.auth_models import Role, TokenData
 from services.common.url_utils import is_safe_http_url
 from services.common.visibility import normalize_visibility as _base_normalize_visibility
@@ -84,6 +85,79 @@ def tenant_id_from_scope_header(scoped_header: Optional[str]) -> str:
             return tenant.id
 
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Unknown tenant scope header")
+
+
+def _alert_label_value(labels: Dict[str, object], *keys: str) -> str:
+    for key in keys:
+        value = str(labels.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def infer_tenant_id_from_alerts(scoped_header: Optional[str], alerts: Optional[List[Dict[str, object]]]) -> str:
+    base_tenant_id = tenant_id_from_scope_header(scoped_header)
+    if scoped_header and str(scoped_header).strip():
+        return base_tenant_id
+
+    payload_alerts = alerts or []
+    if not payload_alerts:
+        return base_tenant_id
+
+    candidates: set[str] = set()
+    with get_db_session() as db:
+        for alert in payload_alerts:
+            labels = alert.get("labels") if isinstance(alert, dict) else {}
+            if not isinstance(labels, dict):
+                continue
+            alertname = _alert_label_value(labels, "alertname")
+            org_id = _alert_label_value(labels, "org_id", "orgId", "tenant", "product")
+
+            if alertname and org_id:
+                rows = (
+                    db.query(AlertRule.tenant_id)
+                    .filter(
+                        and_(
+                            AlertRule.enabled.is_(True),
+                            AlertRule.name == alertname,
+                            AlertRule.org_id == org_id,
+                        )
+                    )
+                    .all()
+                )
+                candidates.update(str(tenant_id) for (tenant_id,) in rows if str(tenant_id).strip())
+                continue
+
+            if alertname:
+                rows = (
+                    db.query(AlertRule.tenant_id)
+                    .filter(
+                        and_(
+                            AlertRule.enabled.is_(True),
+                            AlertRule.name == alertname,
+                        )
+                    )
+                    .all()
+                )
+                candidates.update(str(tenant_id) for (tenant_id,) in rows if str(tenant_id).strip())
+
+    if len(candidates) == 1:
+        inferred = next(iter(candidates))
+        logger.info(
+            "Inferred tenant %s from webhook alerts (base=%s, explicit_scope=%s)",
+            inferred,
+            base_tenant_id,
+            bool(scoped_header and str(scoped_header).strip()),
+        )
+        return inferred
+
+    if len(candidates) > 1:
+        logger.warning(
+            "Ambiguous tenant inference for webhook alerts; using base tenant %s candidates=%s",
+            base_tenant_id,
+            sorted(candidates),
+        )
+    return base_tenant_id
 
 
 def encrypt_tenant_secret(value: Optional[str]) -> Optional[str]:

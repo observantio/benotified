@@ -248,9 +248,12 @@ async def test_alert_rule(
     if not rule:
         raise HTTPException(status_code=404, detail=f"Alert rule {rule_id} not found")
 
-    channels = await run_in_threadpool(storage_service.get_notification_channels, tenant_id, user_id, group_ids)
-    if rule.notification_channels:
-        channels = [channel for channel in channels if channel.id in rule.notification_channels]
+    channels = await run_in_threadpool(
+        storage_service.get_notification_channels_for_rule_name,
+        tenant_id,
+        rule.name,
+        rule.org_id,
+    )
     if not channels:
         raise HTTPException(status_code=400, detail="No notification channels configured for this rule")
 
@@ -259,6 +262,16 @@ async def test_alert_rule(
         annotations={
             "summary": rule.annotations.get("summary", f"Test alert for {rule.name}"),
             "description": rule.annotations.get("description", rule.expr),
+            "beobservantCorrelationId": str(getattr(rule, "group", "") or ""),
+            "beobservantCreatedBy": str(getattr(rule, "created_by", "") or ""),
+            "beobservantRuleName": str(getattr(rule, "name", "") or ""),
+            "beobservantProductName": str(
+                rule.annotations.get("beobservantProductName")
+                or rule.annotations.get("productName")
+                or rule.annotations.get("product_name")
+                or (rule.labels or {}).get("product")
+                or ""
+            ),
             **(rule.annotations or {}),
         },
         startsAt=datetime.now(timezone.utc).isoformat(),
@@ -270,7 +283,7 @@ async def test_alert_rule(
     success_count = 0
     for channel in channels:
         try:
-            ok = await notification_service.send_notification(channel, alert, "firing")
+            ok = await notification_service.send_notification(channel, alert, "test")
             results.append({"channel": channel.name, "ok": ok})
             if ok:
                 success_count += 1

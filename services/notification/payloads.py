@@ -22,6 +22,15 @@ PD_SEVERITY_MAP = {
     "info": "info",
 }
 
+
+def _status_text(action: str) -> str:
+    normalized = str(action or "").strip().lower()
+    if normalized == "test":
+        return "TEST"
+    if normalized == "resolved":
+        return "RESOLVED"
+    return "FIRING"
+
 def _fmt(value) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
@@ -110,7 +119,7 @@ def format_alert_body(alert: Alert, action: str) -> str:
 
     lines = [
         f"Alert: {get_label(alert, 'alertname', 'Unknown')}",
-        f"Status: {action.upper()}",
+        f"Status: {_status_text(action)}",
         f"Severity: {get_label(alert, 'severity', 'unknown')}",
         f"Started at: {_fmt(alert.starts_at)}",
     ]
@@ -141,10 +150,11 @@ def format_alert_body(alert: Alert, action: str) -> str:
 
 def build_slack_payload(alert: Alert, action: str) -> dict:
     severity = get_label(alert, "severity").lower()
+    status_text = _status_text(action)
 
-    if action == "firing":
+    if status_text == "FIRING":
         color = "danger"
-    elif action == "resolved":
+    elif status_text == "RESOLVED":
         color = "good"
     else:
         color = "warning"
@@ -157,11 +167,11 @@ def build_slack_payload(alert: Alert, action: str) -> dict:
 
     attachment = {
         "color": color,
-        "title": f"[{action.upper()}] {get_label(alert, 'alertname', 'Alert')}",
+        "title": f"[{status_text}] {get_label(alert, 'alertname', 'Alert')}",
         "text": get_alert_text(alert),
         "fields": [
             {"title": "Severity", "value": severity or "unknown", "short": True},
-            {"title": "Status", "value": action, "short": True},
+            {"title": "Status", "value": status_text, "short": True},
             {"title": "Correlation ID", "value": _context_value(alert, "beobservantCorrelationId", "correlation_id", "correlationId", "group") or NO_VALUE, "short": True},
             {"title": "Created by", "value": _context_value(alert, "beobservantCreatedBy", "created_by", "createdBy") or NO_VALUE, "short": True},
             {"title": "Product", "value": _context_value(alert, "beobservantProductName", "product") or NO_VALUE, "short": True},
@@ -179,10 +189,11 @@ def build_slack_payload(alert: Alert, action: str) -> dict:
 
 def build_teams_payload(alert: Alert, action: str) -> dict:
     severity = get_label(alert, "severity").lower()
+    status_text = _status_text(action)
 
-    if action == "firing":
+    if status_text == "FIRING":
         theme_color = "FFA500" if severity == "warning" else "FF0000"
-    elif action == "resolved":
+    elif status_text == "RESOLVED":
         theme_color = "00FF00"
     else:
         theme_color = "FFA500"
@@ -191,12 +202,12 @@ def build_teams_payload(alert: Alert, action: str) -> dict:
         "@type": "MessageCard",
         "@context": "https://schema.org/extensions",
         "themeColor": theme_color,
-        "title": f"[{action.upper()}] {get_label(alert, 'alertname', 'Alert')}",
+        "title": f"[{status_text}] {get_label(alert, 'alertname', 'Alert')}",
         "text": get_alert_text(alert),
         "sections": [{
             "facts": [
                 {"name": "Severity", "value": severity or "unknown"},
-                {"name": "Status", "value": action},
+                {"name": "Status", "value": status_text},
                 {"name": "Correlation ID", "value": _context_value(alert, "beobservantCorrelationId", "correlation_id", "correlationId", "group") or NO_VALUE},
                 {"name": "Created by", "value": _context_value(alert, "beobservantCreatedBy", "created_by", "createdBy") or NO_VALUE},
                 {"name": "Product", "value": _context_value(alert, "beobservantProductName", "product") or NO_VALUE},
@@ -209,7 +220,8 @@ def build_teams_payload(alert: Alert, action: str) -> dict:
 
 
 def build_pagerduty_payload(alert: Alert, action: str, routing_key: str) -> dict:
-    event_action = "trigger" if action == "firing" else "resolve"
+    status_text = _status_text(action)
+    event_action = "resolve" if status_text == "RESOLVED" else "trigger"
 
     raw_severity = get_label(alert, "severity", "warning").lower()
     severity = PD_SEVERITY_MAP.get(raw_severity, "warning")

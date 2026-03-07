@@ -148,6 +148,6 @@ async def test_notification_channel(
         fingerprint="test",
     )
 
-    if await notification_service.send_notification(channel, test_alert, "firing"):
+    if await notification_service.send_notification(channel, test_alert, "test"):
         return {"status": "success", "message": f"Test notification sent to {channel.name}"}
     raise HTTPException(status_code=500, detail="Failed to send test notification")
