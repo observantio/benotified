@@ -33,6 +33,11 @@ async def notify_for_alerts(service, tenant_id: str, alerts_list, storage_servic
             alertname,
             org_id=org_id,
         )
+        matched_rule = storage_service.get_alert_rule_by_name_for_delivery(
+            tenant_id,
+            alertname,
+            org_id=org_id,
+        )
         if not channels:
             logger.info("No notification channels configured for rule %s", alertname)
             continue
@@ -51,9 +56,27 @@ async def notify_for_alerts(service, tenant_id: str, alerts_list, storage_servic
         state_enum = AlertState.ACTIVE if is_active else AlertState.UNPROCESSED
         status_obj = AlertStatus(state=state_enum, silencedBy=silenced, inhibitedBy=inhibited)
 
+        labels = incoming_alert.get("labels", {}) or {}
+        annotations = incoming_alert.get("annotations", {}) or {}
+        if matched_rule:
+            enriched_annotations = dict(annotations)
+            enriched_annotations.setdefault("beobservantCorrelationId", str(getattr(matched_rule, "group", "") or ""))
+            enriched_annotations.setdefault("beobservantCreatedBy", str(getattr(matched_rule, "created_by", "") or ""))
+            enriched_annotations.setdefault("beobservantRuleName", str(getattr(matched_rule, "name", "") or ""))
+            rule_annotations = getattr(matched_rule, "annotations", {}) or {}
+            product_name = (
+                rule_annotations.get("beobservantProductName")
+                or rule_annotations.get("productName")
+                or rule_annotations.get("product_name")
+                or labels.get("product")
+            )
+            if product_name:
+                enriched_annotations.setdefault("beobservantProductName", str(product_name))
+            annotations = enriched_annotations
+
         alert_model = Alert(
-            labels=incoming_alert.get("labels", {}),
-            annotations=incoming_alert.get("annotations", {}),
+            labels=labels,
+            annotations=annotations,
             startsAt=incoming_alert.get("startsAt") or incoming_alert.get("starts_at") or datetime.now(timezone.utc).isoformat(),
             endsAt=incoming_alert.get("endsAt") or incoming_alert.get("ends_at"),
             generatorURL=incoming_alert.get("generatorURL"),

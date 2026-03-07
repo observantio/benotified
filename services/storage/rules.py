@@ -32,6 +32,29 @@ def _shared_group_ids(db_obj) -> List[str]:
     return [g.id for g in db_obj.shared_groups] if getattr(db_obj, "shared_groups", None) else []
 
 class RuleStorageService:
+    def get_alert_rule_by_name_for_delivery(
+        self,
+        tenant_id: str,
+        rule_name: str,
+        org_id: Optional[str] = None,
+    ) -> Optional[AlertRule]:
+        target_name = str(rule_name or "").strip()
+        if not target_name:
+            return None
+        with get_db_session() as db:
+            rules = (
+                db.query(AlertRuleDB)
+                .options(joinedload(AlertRuleDB.shared_groups))
+                .filter(AlertRuleDB.tenant_id == tenant_id, AlertRuleDB.name == target_name)
+                .all()
+            )
+            if not rules:
+                return None
+            if org_id:
+                org_matched = [r for r in rules if str(getattr(r, "org_id", "") or "") == str(org_id)]
+                rules = org_matched or [r for r in rules if not getattr(r, "org_id", None)] or rules
+            return rule_to_pydantic(rules[0])
+
     def get_hidden_rule_ids(self, tenant_id: str, user_id: str) -> List[str]:
         with get_db_session() as db:
             rows = (

@@ -42,9 +42,10 @@ def test_format_alert_body_and_build_payloads():
     a = _make_alert()
     body = notification_payloads.format_alert_body(a, "firing")
     assert "Alert: DiskFull" in body
-    assert "Status: firing" in body
+    assert "Status: FIRING" in body
+    assert "Context:" not in body
     assert "Labels:" in body
-    assert "severity: critical" in body
+    assert "instance: srv1" in body
 
     slack = notification_payloads.build_slack_payload(a, "firing")
     assert isinstance(slack, dict)
@@ -62,3 +63,38 @@ def test_format_alert_body_and_build_payloads():
     assert pd["routing_key"] == "rk1"
     assert pd["payload"]["severity"] == "critical"
     assert pd["dedup_key"] == "fp-123"
+
+
+def test_payloads_include_human_context_fields_when_present():
+    a = _make_alert(
+        labels={
+            "alertname": "DiskFull",
+            "severity": "critical",
+            "instance": "srv1",
+            "team": "core",
+        },
+        annotations={
+            "summary": "disk almost full",
+            "description": "root partition > 90%",
+            "beobservantCorrelationId": "core-infra",
+            "beobservantCreatedBy": "alice",
+            "beobservantProductName": "Payments API",
+        },
+    )
+    body = notification_payloads.format_alert_body(a, "firing")
+    assert "Correlation ID: core-infra" in body
+    assert "Created by: alice" in body
+    assert "Product: Payments API" in body
+    assert "team: core" in body
+
+    slack = notification_payloads.build_slack_payload(a, "firing")
+    fields = {f["title"]: f["value"] for f in slack["attachments"][0]["fields"]}
+    assert fields["Correlation ID"] == "core-infra"
+    assert fields["Created by"] == "alice"
+    assert fields["Product"] == "Payments API"
+
+    teams = notification_payloads.build_teams_payload(a, "firing")
+    facts = {f["name"]: f["value"] for f in teams["sections"][0]["facts"]}
+    assert facts["Correlation ID"] == "core-infra"
+    assert facts["Created by"] == "alice"
+    assert facts["Product"] == "Payments API"

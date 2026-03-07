@@ -162,6 +162,14 @@ class DatabaseStorageService:
     ) -> Optional[AlertRule]:
         return self.rules.get_alert_rule(rule_id, tenant_id, user_id, group_ids=group_ids)
 
+    def get_alert_rule_by_name_for_delivery(
+        self,
+        tenant_id: str,
+        rule_name: str,
+        org_id: Optional[str] = None,
+    ) -> Optional[AlertRule]:
+        return self.rules.get_alert_rule_by_name_for_delivery(tenant_id, rule_name, org_id=org_id)
+
     def create_alert_rule(
         self,
         rule_create: AlertRuleCreate,

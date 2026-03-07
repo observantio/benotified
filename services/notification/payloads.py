@@ -22,7 +22,6 @@ PD_SEVERITY_MAP = {
     "info": "info",
 }
 
-
 def _fmt(value) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
@@ -46,27 +45,96 @@ def get_alert_text(alert: Alert) -> str:
     return summary or description or "No description"
 
 
+def _context_value(alert: Alert, *keys: str) -> str:
+    annotations = alert.annotations or {}
+    labels = alert.labels or {}
+    for key in keys:
+        value = annotations.get(key)
+        if value is None:
+            value = labels.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return ""
+
+
+def _human_context(alert: Alert) -> list[tuple[str, str]]:
+    correlation_id = _context_value(
+        alert,
+        "beobservantCorrelationId",
+        "correlation_id",
+        "correlationId",
+        "group",
+    )
+    created_by = _context_value(alert, "beobservantCreatedBy", "created_by", "createdBy")
+    product_name = _context_value(alert, "beobservantProductName", "product")
+    rule_name = _context_value(alert, "beobservantRuleName")
+    context: list[tuple[str, str]] = []
+    if rule_name:
+        context.append(("Rule", rule_name))
+    if correlation_id:
+        context.append(("Correlation ID", correlation_id))
+    if product_name:
+        context.append(("Product", product_name))
+    if created_by:
+        context.append(("Created by", created_by))
+    return context
+
+
+def _important_labels(alert: Alert) -> list[tuple[str, str]]:
+    skip = {
+        "alertname",
+        "severity",
+        "org_id",
+        "orgId",
+        "tenant",
+        "product",
+        "correlation_id",
+        "correlationId",
+        "group",
+    }
+    labels = []
+    for key, value in sorted((alert.labels or {}).items(), key=lambda item: str(item[0])):
+        k = str(key)
+        if k in skip:
+            continue
+        labels.append((k, str(value)))
+    return labels
+
+
 def format_alert_body(alert: Alert, action: str) -> str:
     summary = get_annotation(alert, "summary") or "No summary"
     description = get_annotation(alert, "description") or "No description"
 
     lines = [
         f"Alert: {get_label(alert, 'alertname', 'Unknown')}",
-        f"Status: {action}",
+        f"Status: {action.upper()}",
         f"Severity: {get_label(alert, 'severity', 'unknown')}",
-        f"Started: {_fmt(alert.starts_at)}",
+        f"Started at: {_fmt(alert.starts_at)}",
+    ]
+
+    context = _human_context(alert)
+    if context:
+        lines.extend(["", "Context:"])
+        for key, value in context:
+            lines.append(f"  {key}: {value}")
+
+    lines.extend([
         "",
         "Summary:",
         summary,
         "",
         "Description:",
         description,
-        "",
-        "Labels:",
-    ]
+    ])
 
-    for key, value in (alert.labels or {}).items():
-        lines.append(f"  {key}: {value}")
+    labels = _important_labels(alert)
+    if labels:
+        lines.extend(["", "Labels:"])
+        for key, value in labels:
+            lines.append(f"  {key}: {value}")
 
     return "\n".join(lines)
 
@@ -94,10 +162,13 @@ def build_slack_payload(alert: Alert, action: str) -> dict:
         "fields": [
             {"title": "Severity", "value": severity or "unknown", "short": True},
             {"title": "Status", "value": action, "short": True},
+            {"title": "Correlation ID", "value": _context_value(alert, "beobservantCorrelationId", "correlation_id", "correlationId", "group") or NO_VALUE, "short": True},
+            {"title": "Created by", "value": _context_value(alert, "beobservantCreatedBy", "created_by", "createdBy") or NO_VALUE, "short": True},
+            {"title": "Product", "value": _context_value(alert, "beobservantProductName", "product") or NO_VALUE, "short": True},
             {"title": "Summary", "value": get_annotation(alert, "summary") or NO_VALUE, "short": False},
             {"title": "Description", "value": get_annotation(alert, "description") or NO_VALUE, "short": False},
         ],
-        "footer": f"Started: {_fmt(alert.starts_at)}",
+        "footer": f"Started at: {_fmt(alert.starts_at)}",
     }
 
     if ts is not None:
@@ -126,6 +197,9 @@ def build_teams_payload(alert: Alert, action: str) -> dict:
             "facts": [
                 {"name": "Severity", "value": severity or "unknown"},
                 {"name": "Status", "value": action},
+                {"name": "Correlation ID", "value": _context_value(alert, "beobservantCorrelationId", "correlation_id", "correlationId", "group") or NO_VALUE},
+                {"name": "Created by", "value": _context_value(alert, "beobservantCreatedBy", "created_by", "createdBy") or NO_VALUE},
+                {"name": "Product", "value": _context_value(alert, "beobservantProductName", "product") or NO_VALUE},
                 {"name": "Started", "value": _fmt(alert.starts_at)},
                 {"name": "Summary", "value": get_annotation(alert, "summary") or NO_VALUE},
                 {"name": "Description", "value": get_annotation(alert, "description") or NO_VALUE},
