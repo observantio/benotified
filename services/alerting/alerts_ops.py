@@ -8,14 +8,23 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
+from __future__ import annotations
+
 from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Dict, List, Optional
 from models.alerting.alerts import Alert, AlertGroup
 from models.alerting.silences import Matcher, SilenceCreate
 import httpx
 from config import config
 
-async def list_metric_names(service, org_id: str) -> List[str]:
+if TYPE_CHECKING:
+    from services.alertmanager_service import AlertManagerService
+
+QueryParamValue = str | int | float | bool | None
+QueryParamMapping = Mapping[str, QueryParamValue | Sequence[QueryParamValue]]
+
+async def list_metric_names(service: AlertManagerService, org_id: str) -> List[str]:
     response = await service._mimir_client.get(
         f"{config.MIMIR_URL.rstrip('/')}/prometheus/api/v1/label/__name__/values",
         headers={"X-Scope-OrgID": org_id},
@@ -33,13 +42,13 @@ async def list_metric_names(service, org_id: str) -> List[str]:
 
 
 async def get_alerts(
-    service,
+    service: AlertManagerService,
     filter_labels: Optional[Dict[str, str]] = None,
     active: Optional[bool] = None,
     silenced: Optional[bool] = None,
     inhibited: Optional[bool] = None,
 ) -> List[Alert]:
-    params: Dict = {}
+    params: Dict[str, QueryParamValue | Sequence[QueryParamValue]] = {}
 
     if filter_labels:
         params["filter"] = [f'{k}="{v}"' for k, v in filter_labels.items()]
@@ -62,8 +71,8 @@ async def get_alerts(
         return []
 
 
-async def get_alert_groups(service, filter_labels: Optional[Dict[str, str]] = None) -> List[AlertGroup]:
-    params = {}
+async def get_alert_groups(service: AlertManagerService, filter_labels: Optional[Dict[str, str]] = None) -> List[AlertGroup]:
+    params: Dict[str, QueryParamValue | Sequence[QueryParamValue]] = {}
     if filter_labels:
         params["filter"] = [f'{k}="{v}"' for k, v in filter_labels.items()]
 
@@ -78,7 +87,7 @@ async def get_alert_groups(service, filter_labels: Optional[Dict[str, str]] = No
         service.logger.error("Error fetching alert groups: %s", exc)
         return []
 
-async def post_alerts(service, alerts: List[Alert]) -> bool:
+async def post_alerts(service: AlertManagerService, alerts: List[Alert]) -> bool:
     try:
         response = await service._client.post(
             f"{service.alertmanager_url}/api/v2/alerts",
@@ -91,7 +100,7 @@ async def post_alerts(service, alerts: List[Alert]) -> bool:
         return False
 
 
-async def delete_alerts(service, filter_labels: Optional[Dict[str, str]] = None) -> bool:
+async def delete_alerts(service: AlertManagerService, filter_labels: Optional[Dict[str, str]] = None) -> bool:
     if not filter_labels:
         service.logger.warning("Cannot delete all alerts without filter")
         return False

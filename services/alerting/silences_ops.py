@@ -8,37 +8,55 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
+from __future__ import annotations
+
 import asyncio
-from typing import Dict, List, Optional
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Dict, List, Optional
 import httpx
 import logging
+from sqlalchemy.exc import SQLAlchemyError
 from database import get_db_session
 from db_models import PurgedSilence
 from models.access.auth_models import TokenData
 from models.alerting.silences import Silence, SilenceCreate, Visibility
 
+if TYPE_CHECKING:
+    from services.alertmanager_service import AlertManagerService
+
 logger = logging.getLogger(__name__)
 
-def apply_silence_metadata(service, silence: Silence) -> Silence:
+QueryParamValue = str | int | float | bool | None
+
+
+def _visibility_value(value: object) -> Visibility:
+    if isinstance(value, Visibility):
+        return value
+    raw = str(value or Visibility.TENANT.value).strip().lower()
+    try:
+        return Visibility(raw)
+    except ValueError:
+        return Visibility.TENANT
+
+def apply_silence_metadata(service: AlertManagerService, silence: Silence) -> Silence:
     data = service.decode_silence_comment(silence.comment)
-    silence.comment = data["comment"]
-    silence.visibility = data["visibility"]
-    silence.shared_group_ids = data["shared_group_ids"]
+    comment = data.get("comment")
+    visibility = data.get("visibility")
+    shared_group_ids = data.get("shared_group_ids")
+    silence.comment = str(comment or "")
+    silence.visibility = _visibility_value(visibility)
+    silence.shared_group_ids = [str(group_id) for group_id in shared_group_ids] if isinstance(shared_group_ids, list) else []
     return silence
 
 
 def silence_accessible(silence: Silence, current_user: TokenData) -> bool:
-    visibility = silence.visibility or Visibility.TENANT.value
-    actor_ids = {
-        str(getattr(current_user, "username", "") or "").strip(),
-        str(getattr(current_user, "user_id", "") or "").strip(),
-    }
-    actor_ids.discard("")
-    if str(silence.created_by or "").strip() in actor_ids:
+    visibility = _visibility_value(silence.visibility)
+    actor_id = str(getattr(current_user, "user_id", "") or "").strip()
+    if actor_id and str(silence.created_by or "").strip() == actor_id:
         return True
-    if visibility == Visibility.TENANT.value:
+    if visibility == Visibility.TENANT:
         return True
-    if visibility == Visibility.GROUP.value:
+    if visibility == Visibility.GROUP:
         user_group_ids = getattr(current_user, "group_ids", []) or []
         return any(group_id in silence.shared_group_ids for group_id in user_group_ids)
     return False
@@ -48,16 +66,12 @@ def silence_owned_by(silence: Silence, current_user: TokenData) -> bool:
     owner = str(getattr(silence, "created_by", "") or "").strip()
     if not owner:
         return False
-    actor_ids = {
-        str(getattr(current_user, "username", "") or "").strip(),
-        str(getattr(current_user, "user_id", "") or "").strip(),
-    }
-    actor_ids.discard("")
-    return owner in actor_ids
+    actor_id = str(getattr(current_user, "user_id", "") or "").strip()
+    return bool(actor_id) and owner == actor_id
 
 
 async def prune_removed_member_group_silences(
-    service,
+    service: AlertManagerService,
     *,
     group_id: str,
     removed_user_ids: Optional[List[str]] = None,
@@ -80,7 +94,7 @@ async def prune_removed_member_group_silences(
     updated = 0
     for silence in silences:
         silence = apply_silence_metadata(service, silence)
-        if str(silence.visibility or Visibility.TENANT.value) != Visibility.GROUP.value:
+        if _visibility_value(silence.visibility) != Visibility.GROUP:
             continue
         if not silence.id:
             continue
@@ -112,8 +126,8 @@ async def prune_removed_member_group_silences(
     return updated
 
 
-async def get_silences(service, filter_labels: Optional[Dict[str, str]] = None) -> List[Silence]:
-    params = {}
+async def get_silences(service: AlertManagerService, filter_labels: Optional[Dict[str, str]] = None) -> List[Silence]:
+    params: Dict[str, QueryParamValue | Sequence[QueryParamValue]] = {}
     if filter_labels:
         params["filter"] = [f'{k}="{v}"' for k, v in filter_labels.items()]
 
@@ -128,7 +142,7 @@ async def get_silences(service, filter_labels: Optional[Dict[str, str]] = None) 
         try:
             with get_db_session() as db:
                 purged_ids = {p.id for p in db.query(PurgedSilence).all()}
-        except Exception:
+        except SQLAlchemyError:
             purged_ids = set()
 
         if not purged_ids:
@@ -143,7 +157,7 @@ async def get_silences(service, filter_labels: Optional[Dict[str, str]] = None) 
         return []
 
 
-async def get_silence(service, silence_id: str) -> Optional[Silence]:
+async def get_silence(service: AlertManagerService, silence_id: str) -> Optional[Silence]:
     try:
         response = await service._client.get(f"{service.alertmanager_url}/api/v2/silence/{silence_id}")
         response.raise_for_status()
@@ -153,20 +167,22 @@ async def get_silence(service, silence_id: str) -> Optional[Silence]:
         return None
 
 
-async def create_silence(service, silence: SilenceCreate) -> Optional[str]:
+async def create_silence(service: AlertManagerService, silence: SilenceCreate) -> Optional[str]:
     try:
         response = await service._client.post(
             f"{service.alertmanager_url}/api/v2/silences",
             json=silence.model_dump(by_alias=True, exclude_none=True),
         )
         response.raise_for_status()
-        return response.json().get("silenceID")
+        payload = response.json()
+        silence_id = payload.get("silenceID") if isinstance(payload, dict) else None
+        return str(silence_id) if isinstance(silence_id, str) else None
     except httpx.HTTPError as exc:
         logger.error("Error creating silence: %s", exc)
         return None
 
 
-async def delete_silence(service, silence_id: str) -> bool:
+async def delete_silence(service: AlertManagerService, silence_id: str) -> bool:
     try:
         response = await service._client.delete(f"{service.alertmanager_url}/api/v2/silence/{silence_id}")
         response.raise_for_status()
@@ -176,10 +192,7 @@ async def delete_silence(service, silence_id: str) -> bool:
             remaining = await get_silence(service, silence_id)
             if remaining is None:
                 return True
-            try:
-                state = (remaining.status or {}).get("state")
-            except Exception:
-                state = None
+            state = (remaining.status or {}).get("state") if isinstance(remaining.status, dict) else None
             if state and str(state).lower() == "expired":
                 return True
 
@@ -190,6 +203,6 @@ async def delete_silence(service, silence_id: str) -> bool:
         return False
 
 
-async def update_silence(service, silence_id: str, silence: SilenceCreate) -> Optional[str]:
+async def update_silence(service: AlertManagerService, silence_id: str, silence: SilenceCreate) -> Optional[str]:
     await delete_silence(service, silence_id)
     return await create_silence(service, silence)

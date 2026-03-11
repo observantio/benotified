@@ -60,7 +60,7 @@ def format_note_for_jira_comment(
     try:
         dt = datetime.fromisoformat(str(when).replace("Z", "+00:00"))
         when_label = dt.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    except Exception:
+    except ValueError:
         when_label = str(when)
     return f"{author_label} · {when_label}\n{raw_text}"
 
@@ -143,8 +143,6 @@ async def sync_note_to_jira_comment(
         await jira_service.add_comment(incident.jira_ticket_key, formatted, credentials=credentials)
     except JiraError as exc:
         logger.warning("Failed to sync incident note to Jira for incident %s: %s", incident.id, exc)
-    except Exception:
-        logger.exception("Unexpected error syncing incident note to Jira for incident %s", incident.id)
 
 
 async def move_incident_ticket_to_todo(
@@ -166,12 +164,6 @@ async def move_incident_ticket_to_todo(
             incident.jira_ticket_key,
             incident.id,
             exc,
-        )
-    except Exception:
-        logger.exception(
-            "Unexpected error moving Jira issue %s to To Do for incident %s",
-            incident.jira_ticket_key,
-            incident.id,
         )
 
 
@@ -195,12 +187,6 @@ async def move_incident_ticket_to_in_progress(
             incident.id,
             exc,
         )
-    except Exception:
-        logger.exception(
-            "Unexpected error moving Jira issue %s to In Progress for incident %s",
-            incident.jira_ticket_key,
-            incident.id,
-        )
 
 
 async def move_incident_ticket_to_done(
@@ -222,11 +208,5 @@ async def move_incident_ticket_to_done(
             incident.jira_ticket_key,
             incident.id,
             exc,
-        )
-    except Exception:
-        logger.exception(
-            "Unexpected error moving Jira issue %s to Done for incident %s",
-            incident.jira_ticket_key,
-            incident.id,
         )
 

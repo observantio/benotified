@@ -10,18 +10,23 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import asyncio
 import logging
-from typing import Any
+from collections.abc import Mapping
+from email.message import EmailMessage
+from typing import Any, cast
+
 import aiosmtplib
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 from config import config
+from custom_types.json import JSONValue
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_RETRY_ON_STATUS: frozenset[int] = frozenset({429, 500, 502, 503, 504})
+QueryParamValue = str | int | float | bool
 
 
-def _is_transient_http(exc: Exception, retry_on_status: frozenset[int]) -> bool:
+def _is_transient_http(exc: BaseException, retry_on_status: frozenset[int]) -> bool:
     if isinstance(exc, httpx.RequestError):
         return True
     if isinstance(exc, httpx.HTTPStatusError):
@@ -31,7 +36,7 @@ def _is_transient_http(exc: Exception, retry_on_status: frozenset[int]) -> bool:
 
 
 
-def _is_transient_smtp(exc: Exception) -> bool:
+def _is_transient_smtp(exc: BaseException) -> bool:
     if isinstance(exc, aiosmtplib.errors.SMTPException):
         code = getattr(exc, "code", None)
         return isinstance(code, int) and 400 <= code < 500
@@ -41,9 +46,9 @@ def _is_transient_smtp(exc: Exception) -> bool:
 async def post_with_retry(
     client: httpx.AsyncClient,
     url: str,
-    json: dict[str, Any] | None = None,
+    json: Mapping[str, JSONValue] | None = None,
     headers: dict[str, str] | None = None,
-    params: dict[str, Any] | None = None,
+    params: dict[str, QueryParamValue] | None = None,
     retry_on_status: frozenset[int] | set[int] = DEFAULT_RETRY_ON_STATUS,
 ) -> httpx.Response:
     retry_set = frozenset(retry_on_status)
@@ -73,25 +78,42 @@ async def post_with_retry(
     reraise=True,
 )
 async def send_smtp_with_retry(
-    message,
+    message: EmailMessage,
     hostname: str,
     port: int,
     username: str | None = None,
     password: str | None = None,
     start_tls: bool = False,
     use_tls: bool = False,
-):
+) -> object:
     try:
         async with asyncio.timeout(config.DEFAULT_TIMEOUT):
-            return await aiosmtplib.send(
-                message=message,
-                hostname=hostname,
-                port=port,
-                username=username,
-                password=password,
-                start_tls=start_tls,
-                use_tls=use_tls,
-            )
+            smtp_send = cast(Any, aiosmtplib.send)
+            try:
+                return await smtp_send(
+                    message,
+                    hostname=hostname,
+                    port=port,
+                    username=username,
+                    password=password,
+                    start_tls=start_tls,
+                    use_tls=use_tls,
+                )
+            except TypeError as exc:
+                if "positional argument" not in str(exc):
+                    raise
+                kwargs = {
+                    "message": message,
+                    "hostname": hostname,
+                    "port": port,
+                    "username": username,
+                    "password": password,
+                    "start_tls": start_tls,
+                    "use_tls": use_tls,
+                }
+                return await smtp_send(
+                    **kwargs,
+                )
     except Exception as exc:
         logger.warning("SMTP send failed, retrying: %s:%s", hostname, port, exc_info=exc)
         raise

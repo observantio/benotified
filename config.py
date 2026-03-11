@@ -10,7 +10,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 import logging
 import os
-from typing import Optional, List
+from typing import Callable, Optional, List
 from services.secrets.provider import SecretProvider, EnvSecretProvider
 
 from cryptography.fernet import Fernet
@@ -81,6 +81,21 @@ def _is_production_env() -> bool:
     return _env_name() in {"prod", "production"}
 
 
+def _file_secret_callback(secret_path: str) -> Callable[[], str]:
+    def load_secret_id() -> str:
+        with open(secret_path, encoding="utf-8") as handle:
+            return handle.read().strip()
+
+    return load_secret_id
+
+
+def _literal_secret_callback(secret_value: str) -> Callable[[], str]:
+    def load_secret_id() -> str:
+        return secret_value
+
+    return load_secret_id
+
+
 def build_secret_provider() -> SecretProvider:
     vault_addr = os.getenv("VAULT_ADDR", "").strip()
     if not vault_addr:
@@ -96,12 +111,9 @@ def build_secret_provider() -> SecretProvider:
     secret_id_fn = None
     if role_id:
         if secret_id_file:
-            def secret_id_fn() -> str:
-                with open(secret_id_file) as f:
-                    return f.read().strip()
+            secret_id_fn = _file_secret_callback(secret_id_file)
         elif secret_id:
-            def secret_id_fn() -> str:
-                return secret_id
+            secret_id_fn = _literal_secret_callback(secret_id)
         else:
             raise VaultClientError(
                 "VAULT_ROLE_ID set but neither VAULT_SECRET_ID nor VAULT_SECRET_ID_FILE provided"
@@ -142,6 +154,7 @@ class Config:
     def __init__(self) -> None:
         self.APP_ENV: str = _env_name()
         self.IS_PRODUCTION: bool = _is_production_env()
+        self.DEFAULT_ADMIN_EMAIL: str = os.getenv("DEFAULT_ADMIN_EMAIL", "admin@example.com")
         self.DEFAULT_ADMIN_TENANT = os.getenv("DEFAULT_ADMIN_TENANT", "default")
 
         self.HOST: str = os.getenv("HOST", "127.0.0.1")
@@ -238,7 +251,7 @@ class Config:
 
         try:
             self._load_vault_secrets()
-        except Exception as exc:
+        except (OSError, RuntimeError, TypeError, ValueError) as exc:
             if self.VAULT_ENABLED and (self.IS_PRODUCTION or self.VAULT_FAIL_ON_MISSING):
                 raise
             logger.warning("Vault not available or misconfigured; continuing with environment variables: %s", exc)
@@ -270,13 +283,9 @@ class Config:
         secret_id_fn = None
         if self.VAULT_ROLE_ID:
             if self.VAULT_SECRET_ID_FILE:
-                vault_secret_id_file = self.VAULT_SECRET_ID_FILE
-                def secret_id_fn() -> str:
-                    with open(vault_secret_id_file) as f:
-                        return f.read().strip()
+                secret_id_fn = _file_secret_callback(self.VAULT_SECRET_ID_FILE)
             elif self.VAULT_SECRET_ID:
-                def secret_id_fn() -> str:
-                    return self.VAULT_SECRET_ID
+                secret_id_fn = _literal_secret_callback(self.VAULT_SECRET_ID)
             else:
                 raise VaultClientError(
                     "VAULT_ROLE_ID set but neither VAULT_SECRET_ID nor VAULT_SECRET_ID_FILE provided"
@@ -298,7 +307,7 @@ class Config:
         for key in self.VAULT_SECRET_KEYS:
             try:
                 val = provider.get(key)
-            except Exception:
+            except (OSError, RuntimeError, TypeError, ValueError):
                 val = None
             if val:
                 setattr(self, key, val)
@@ -306,11 +315,11 @@ class Config:
 
     def get_secret(self, key: str) -> Optional[str]:
         val = getattr(self, key, None)
-        if val:
+        if isinstance(val, str) and val:
             return val
         try:
             return self._secret_provider.get(key)
-        except Exception:
+        except (OSError, RuntimeError, TypeError, ValueError):
             return None
 
     def _apply_security_defaults(self) -> None:
@@ -365,7 +374,7 @@ class Config:
         if self.DATA_ENCRYPTION_KEY:
             try:
                 Fernet(self.DATA_ENCRYPTION_KEY)
-            except Exception as exc:
+            except (TypeError, ValueError) as exc:
                 raise ValueError("DATA_ENCRYPTION_KEY must be a valid Fernet key") from exc
 
         if any(origin.strip() == "*" for origin in self.CORS_ORIGINS) and self.CORS_ALLOW_CREDENTIALS:

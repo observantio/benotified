@@ -9,18 +9,20 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 from __future__ import annotations
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field
+
+from custom_types.json import JSONDict
 
 
 class AlertWebhookRequest(BaseModel):
     model_config = ConfigDict(extra="allow")
-    alerts: List[Dict[str, Any]] = Field(default_factory=list)
+    alerts: List[JSONDict] = Field(default_factory=list)
 
 
 class RuleImportRequest(BaseModel):
     yamlContent: Optional[str] = None
-    defaults: Dict[str, Any] = Field(default_factory=dict)
+    defaults: JSONDict = Field(default_factory=dict)
     dryRun: bool = False
 
 

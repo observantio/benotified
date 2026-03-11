@@ -14,8 +14,9 @@ import logging
 import secrets
 import threading
 import time
+from collections.abc import Callable
 from functools import lru_cache
-from ipaddress import ip_address, ip_network
+from ipaddress import IPv4Network, IPv6Network, ip_address, ip_network
 from typing import Optional
 
 import jwt
@@ -102,7 +103,7 @@ def _verify_context_token(token: str) -> TokenData:
             username=str(payload.get("username") or ""),
             tenant_id=str(payload.get("tenant_id") or ""),
             org_id=str(payload.get("org_id") or payload.get("tenant_id") or ""),
-            role=role_text,
+            role=Role(role_text),
             is_superuser=bool(payload.get("is_superuser", False)),
             permissions=[str(p) for p in (payload.get("permissions") or [])],
             group_ids=[str(g) for g in (payload.get("group_ids") or [])],
@@ -157,7 +158,7 @@ def apply_scoped_rate_limit(_current_user: TokenData, _scope: str) -> None:
     return None
 
 
-def require_permission(permission: Permission | str):
+def require_permission(permission: Permission | str) -> Callable[..., TokenData]:
     perm_value = permission.value if hasattr(permission, "value") else str(permission)
 
     def checker(current_user: TokenData = Depends(get_current_user)) -> TokenData:
@@ -170,7 +171,7 @@ def require_permission(permission: Permission | str):
     return checker
 
 
-def require_permission_with_scope(permission: Permission | str, scope: str):
+def require_permission_with_scope(permission: Permission | str, scope: str) -> Callable[..., TokenData]:
     checker = require_permission(permission)
 
     def dependency(current_user: TokenData = Depends(checker)) -> TokenData:
@@ -180,7 +181,7 @@ def require_permission_with_scope(permission: Permission | str, scope: str):
     return dependency
 
 
-def require_any_permission(permissions: list[Permission | str]):
+def require_any_permission(permissions: list[Permission | str]) -> Callable[..., TokenData]:
     perm_values = {p.value if hasattr(p, "value") else str(p) for p in permissions}
 
     def checker(current_user: TokenData = Depends(get_current_user)) -> TokenData:
@@ -193,7 +194,7 @@ def require_any_permission(permissions: list[Permission | str]):
     return checker
 
 
-def require_any_permission_with_scope(permissions: list[Permission | str], scope: str):
+def require_any_permission_with_scope(permissions: list[Permission | str], scope: str) -> Callable[..., TokenData]:
     checker = require_any_permission(permissions)
 
     def dependency(current_user: TokenData = Depends(checker)) -> TokenData:
@@ -228,11 +229,11 @@ def _enforce_ip_allowlist(request: Request, allowlist: str | None, *, scope: str
 
     try:
         networks = list(_parse_allowlist_networks(allowlist))
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Access denied for {scope}: invalid allowlist configuration",
-        )
+        ) from exc
 
     if not networks:
         if config.ALLOWLIST_FAIL_OPEN:
@@ -244,11 +245,11 @@ def _enforce_ip_allowlist(request: Request, allowlist: str | None, *, scope: str
 
     try:
         addr = ip_address(client_ip(request))
-    except ValueError:
+    except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Access denied for {scope}: invalid client IP",
-        )
+        ) from exc
 
     if not any(addr in net for net in networks):
         raise HTTPException(
@@ -258,7 +259,7 @@ def _enforce_ip_allowlist(request: Request, allowlist: str | None, *, scope: str
 
 
 @lru_cache(maxsize=64)
-def _parse_allowlist_networks(allowlist: str) -> tuple:
+def _parse_allowlist_networks(allowlist: str) -> tuple[IPv4Network | IPv6Network, ...]:
     networks = []
     for entry in (e.strip() for e in allowlist.split(",") if e.strip()):
         if "/" in entry:

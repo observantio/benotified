@@ -3,12 +3,27 @@ name: Be Notified CI
 on:
   pull_request:
   push:
-    branches: [ main, master ]
+    branches:
+      - "**"
 
 jobs:
   test:
     name: Python tests (pytest)
     runs-on: ubuntu-latest
+    env:
+      APP_ENV: development
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql://ci_user:ci_password_123@localhost:5432/beobservant
+      BENOTIFIED_DATABASE_URL: postgresql://ci_user:ci_password_123@localhost:5432/benotified
+      CORS_ORIGINS: http://localhost:3000
+      CORS_ALLOW_CREDENTIALS: "true"
+      JWT_AUTO_GENERATE_KEYS: "true"
+      GATEWAY_INTERNAL_SERVICE_TOKEN: ci_gateway_internal_service_token_123456789
+      BENOTIFIED_EXPECTED_SERVICE_TOKEN: ci_benotified_expected_service_token_123456789
+      BENOTIFIED_CONTEXT_VERIFY_KEY: ci_benotified_context_verify_key_12345678901234567890
+      BENOTIFIED_CONTEXT_SIGNING_KEY: ci_benotified_context_signing_key_12345678901234567890
+      INBOUND_WEBHOOK_TOKEN: ci_inbound_webhook_token_123456789
+      PYTHONPATH: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,3 +39,50 @@ jobs:
 
       - name: Run tests
         run: pytest -q tests
+
+  quality:
+    name: Python quality (mypy, pylint)
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: development
+      ENVIRONMENT: development
+      DATABASE_URL: postgresql://ci_user:ci_password_123@localhost:5432/beobservant
+      BENOTIFIED_DATABASE_URL: postgresql://ci_user:ci_password_123@localhost:5432/benotified
+      CORS_ORIGINS: http://localhost:3000
+      CORS_ALLOW_CREDENTIALS: "true"
+      JWT_AUTO_GENERATE_KEYS: "true"
+      GATEWAY_INTERNAL_SERVICE_TOKEN: ci_gateway_internal_service_token_123456789
+      BENOTIFIED_EXPECTED_SERVICE_TOKEN: ci_benotified_expected_service_token_123456789
+      BENOTIFIED_CONTEXT_VERIFY_KEY: ci_benotified_context_verify_key_12345678901234567890
+      BENOTIFIED_CONTEXT_SIGNING_KEY: ci_benotified_context_signing_key_12345678901234567890
+      INBOUND_WEBHOOK_TOKEN: ci_inbound_webhook_token_123456789
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install mypy pylint
+
+      - name: Run mypy
+        run: mypy --config-file "${{ github.workspace }}/mypy.ini" .
+
+      - name: Run pylint
+        run: |
+          pylint --rcfile "${{ github.workspace }}/.pylintrc" \
+            $(find . -maxdepth 1 -mindepth 1 \
+              \( -type d -o -name "*.py" \) \
+              ! -name tests \
+              ! -name __pycache__ \
+              ! -name build \
+              ! -name dist \
+              ! -name tmp \
+              ! -name vendor | sort)

@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Body, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 
+from custom_types.json import JSONDict
 from middleware.dependencies import require_permission_with_scope
 from middleware.error_handlers import handle_route_errors
 from models.access.auth_models import Permission, TokenData
@@ -34,7 +35,7 @@ async def create_incident_jira(
     incident_id: str,
     payload: IncidentJiraCreateRequest = Body(...),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.UPDATE_INCIDENTS, "alertmanager")),
-):
+) -> AlertIncident:
     group_ids = getattr(current_user, "group_ids", []) or []
     incident = await run_in_threadpool(
         storage_service.get_incident_for_user,
@@ -81,10 +82,7 @@ async def create_incident_jira(
             credentials=jira_integration_credentials(integration),
         )
     except JiraError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
-    except Exception:
-        logger.exception("Unexpected error creating Jira issue for incident %s", incident_id)
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create Jira issue")
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
     issue_key = str(response.get("key") or "").strip()
     if issue_key:
@@ -95,18 +93,18 @@ async def create_incident_jira(
             )
         except JiraError as exc:
             logger.warning("Failed to move newly created Jira issue %s to To Do: %s", issue_key, exc)
-        except Exception:
-            logger.exception("Unexpected error while moving Jira issue %s to To Do", issue_key)
 
     updated = await run_in_threadpool(
         storage_service.update_incident,
         incident_id,
         current_user.tenant_id,
         current_user.user_id,
-        AlertIncidentUpdateRequest(
-            jiraTicketKey=response.get("key") or None,
-            jiraTicketUrl=response.get("url") or None,
-            jiraIntegrationId=integration_id,
+        AlertIncidentUpdateRequest.model_validate(
+            {
+                "jiraTicketKey": response.get("key") or None,
+                "jiraTicketUrl": response.get("url") or None,
+                "jiraIntegrationId": integration_id,
+            }
         ),
         group_ids,
     )
@@ -115,15 +113,16 @@ async def create_incident_jira(
 
     try:
         for formatted_text in build_formatted_incident_note_bodies(updated, current_user):
+            issue_key = str(response.get("key") or "").strip()
+            if not issue_key:
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Missing Jira issue key")
             await jira_service.add_comment(
-                issue_key=response.get("key"),
+                issue_key=issue_key,
                 text=formatted_text,
                 credentials=jira_integration_credentials(integration),
             )
     except JiraError as exc:
         logger.warning("Failed to backfill incident notes to Jira issue %s: %s", response.get("key"), exc)
-    except Exception:
-        logger.exception("Unexpected error while backfilling incident notes to Jira issue %s", response.get("key"))
 
     logger.info("Created Jira issue %s for incident %s", response.get("key"), incident_id)
     return updated
@@ -134,7 +133,7 @@ async def create_incident_jira(
 async def sync_incident_jira_notes(
     incident_id: str,
     current_user: TokenData = Depends(require_permission_with_scope(Permission.UPDATE_INCIDENTS, "alertmanager")),
-):
+) -> JSONDict:
     group_ids = getattr(current_user, "group_ids", []) or []
     incident = await run_in_threadpool(
         storage_service.get_incident_for_user,
@@ -160,7 +159,7 @@ async def sync_incident_jira_notes(
     try:
         existing_comments = await jira_service.list_comments(incident.jira_ticket_key, credentials=credentials)
     except JiraError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
     existing_bodies = {
         str(item.get("body") or "").strip()
@@ -179,7 +178,7 @@ async def sync_incident_jira_notes(
             existing_bodies.add(body)
             synced += 1
         except JiraError as exc:
-            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+            raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
     return {"synced": synced, "skipped": skipped, "totalNotes": len(note_bodies)}
 
@@ -188,7 +187,7 @@ async def sync_incident_jira_notes(
 async def list_incident_jira_comments(
     incident_id: str,
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_INCIDENTS, "alertmanager")),
-):
+) -> JSONDict:
     group_ids = getattr(current_user, "group_ids", []) or []
     incident = await run_in_threadpool(
         storage_service.get_incident_for_user,
@@ -209,6 +208,6 @@ async def list_incident_jira_comments(
     try:
         comments = await jira_service.list_comments(incident.jira_ticket_key, credentials=credentials)
     except JiraError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
     return {"comments": comments}

@@ -5,11 +5,13 @@ Group-share revocation helpers for BeNotified resources.
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, List, Set
+from typing import Dict, List, Set
 
+from sqlalchemy.orm import Session
 from sqlalchemy.orm import joinedload
 from sqlalchemy.orm.attributes import flag_modified
 
+from custom_types.json import JSONDict
 from db_models import AlertIncident, AlertRule, Group, NotificationChannel, Tenant
 from services.common.meta import INCIDENT_META_KEY, _safe_group_ids, parse_meta
 
@@ -27,7 +29,7 @@ def _normalize_ids(values: List[str] | None) -> List[str]:
 
 
 def prune_removed_member_group_shares(
-    db,
+    db: Session,
     *,
     tenant_id: str,
     group_id: str,
@@ -46,7 +48,7 @@ def prune_removed_member_group_shares(
     if not target_group_id or (not removed_ids and not removed_names):
         return counts
 
-    def _is_removed_actor(actor: Any) -> bool:
+    def _is_removed_actor(actor: object) -> bool:
         candidate = str(actor or "").strip()
         if not candidate:
             return False
@@ -54,31 +56,49 @@ def prune_removed_member_group_shares(
             return True
         return candidate.lower() in removed_names
 
-    def _prune_shared_model(model, counter_key: str) -> None:
-        rows = (
-            db.query(model)
-            .options(joinedload(model.shared_groups))
-            .filter(
-                model.tenant_id == tenant_id,
-                model.visibility == "group",
-                model.shared_groups.any(Group.id == target_group_id),
-            )
-            .all()
+    rule_rows = (
+        db.query(AlertRule)
+        .options(joinedload(AlertRule.shared_groups))
+        .filter(
+            AlertRule.tenant_id == tenant_id,
+            AlertRule.visibility == "group",
+            AlertRule.shared_groups.any(Group.id == target_group_id),
         )
-        for row in rows:
-            if not _is_removed_actor(getattr(row, "created_by", None)):
-                continue
-            before = [str(getattr(g, "id", "")) for g in (row.shared_groups or [])]
-            after = [g for g in (row.shared_groups or []) if str(getattr(g, "id", "")) != target_group_id]
-            if len(after) == len(before):
-                continue
-            row.shared_groups = after
-            if not row.shared_groups:
-                row.visibility = "private"
-            counts[counter_key] += 1
+        .all()
+    )
+    for row in rule_rows:
+        if not _is_removed_actor(row.created_by):
+            continue
+        before = [str(g.id) for g in row.shared_groups]
+        after = [g for g in row.shared_groups if str(g.id) != target_group_id]
+        if len(after) == len(before):
+            continue
+        row.shared_groups = after
+        if not row.shared_groups:
+            row.visibility = "private"
+        counts["rules"] += 1
 
-    _prune_shared_model(AlertRule, "rules")
-    _prune_shared_model(NotificationChannel, "channels")
+    channel_rows = (
+        db.query(NotificationChannel)
+        .options(joinedload(NotificationChannel.shared_groups))
+        .filter(
+            NotificationChannel.tenant_id == tenant_id,
+            NotificationChannel.visibility == "group",
+            NotificationChannel.shared_groups.any(Group.id == target_group_id),
+        )
+        .all()
+    )
+    for channel_row in channel_rows:
+        if not _is_removed_actor(channel_row.created_by):
+            continue
+        before = [str(g.id) for g in channel_row.shared_groups]
+        after = [g for g in channel_row.shared_groups if str(g.id) != target_group_id]
+        if len(after) == len(before):
+            continue
+        channel_row.shared_groups = after
+        if not channel_row.shared_groups:
+            channel_row.visibility = "private"
+        counts["channels"] += 1
 
     incidents = (
         db.query(AlertIncident)
@@ -108,7 +128,7 @@ def prune_removed_member_group_shares(
         counts["incidents"] += 1
 
     tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
-    settings: Dict[str, Any] = dict(tenant.settings) if tenant and isinstance(tenant.settings, dict) else {}
+    settings: JSONDict = dict(tenant.settings) if tenant and isinstance(tenant.settings, dict) else {}
     jira_items = settings.get("jira_integrations")
     if isinstance(jira_items, list):
         changed = 0

@@ -5,8 +5,6 @@ notification dispatch when an incident is assigned.
 
 import pytest
 
-# ensure configuration is initialized with safe test environment before
-# importing modules that reference `config`.
 from tests._env import ensure_test_env
 ensure_test_env()
 
@@ -17,8 +15,7 @@ from models.alerting.incidents import (
     IncidentStatus,
 )
 
-# import the incidents router module directly by file path so we don't
-# trigger the package-level imports in routers/observability/__init__
+
 import importlib.util
 import sys
 from pathlib import Path

@@ -13,7 +13,7 @@ from typing import List, Optional
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from db_models import Group
+from db_models import AlertRule, Group, NotificationChannel
 
 logger = logging.getLogger(__name__)
 
@@ -65,14 +65,14 @@ def _resolve_groups(
 
 
 def assign_shared_groups(
-    db_obj,
+    db_obj: AlertRule | NotificationChannel,
     db: Session,
     tenant_id: str,
     visibility: str,
     group_ids: Optional[List[str]],
     *,
     actor_group_ids: Optional[List[str]],
-):
+) -> None:
     if visibility != "group":
         db_obj.shared_groups = []
         return

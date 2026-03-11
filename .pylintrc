@@ -1,0 +1,59 @@
+[MASTER]
+ignore=build,tmp,vendor,tests,__pycache__
+jobs=1
+init-hook=import os,sys; cwd=os.getcwd(); sys.path.insert(0, cwd) if cwd not in sys.path else None
+
+[MESSAGES CONTROL]
+disable=
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    too-many-arguments,
+    too-many-positional-arguments,
+    line-too-long,
+    too-few-public-methods,
+    too-many-instance-attributes,
+    too-many-public-methods,
+    too-many-locals,
+    too-many-branches,
+    too-many-statements,
+    too-many-return-statements,
+    too-many-lines,
+    global-statement,
+    global-variable-not-assigned,
+    import-outside-toplevel,
+    wrong-import-order,
+    ungrouped-imports,
+    protected-access,
+    unused-argument,
+    logging-fstring-interpolation,
+    no-else-return,
+    no-else-continue,
+    try-except-raise,
+    simplifiable-condition,
+    consider-merging-isinstance,
+    too-many-nested-blocks,
+    trailing-whitespace,
+    trailing-newlines,
+    missing-final-newline,
+    import-error,
+    no-name-in-module,
+    no-member
+
+[BASIC]
+module-rgx=(BeObservant|[a-z_][a-z0-9_]*)$
+attr-rgx=(_?[a-z][a-z0-9_]*|_?[A-Z][A-Z0-9_]*)$
+const-rgx=(_?[a-z][a-z0-9_]*|_?[A-Z][A-Z0-9_]*)$
+class-const-rgx=(_?[a-z][a-z0-9_]*|_?[A-Z][A-Z0-9_]*)$
+variable-rgx=(_?[a-z][a-z0-9_]*|_?[A-Z][A-Z0-9_]*)$
+good-names=__,_,__all__,X,X_restricted,X_unrestricted
+
+[FORMAT]
+max-line-length=100
+
+[DESIGN]
+max-args=6
+max-positional-arguments=6
+
+[SIMILARITIES]
+min-similarity-lines=8

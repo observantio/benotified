@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.concurrency import run_in_threadpool
 
+from custom_types.json import JSONDict
 from middleware.dependencies import require_permission_with_scope
 from middleware.error_handlers import handle_route_errors
 from models.access.auth_models import Permission, TokenData
@@ -29,7 +30,7 @@ router = APIRouter()
 async def list_jira_integrations(
     show_hidden: bool = Query(False),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_INCIDENTS, "alertmanager")),
-):
+) -> JSONDict:
     integrations = load_tenant_jira_integrations(current_user.tenant_id)
     hidden_ids = set(
         await run_in_threadpool(
@@ -38,7 +39,7 @@ async def list_jira_integrations(
             current_user.user_id,
         )
     )
-    visible_items = []
+    visible_items: list[JSONDict] = []
     for item in integrations:
         if not jira_integration_has_access(item, current_user, write=False):
             continue
@@ -55,7 +56,7 @@ async def list_jira_integrations(
 async def create_jira_integration(
     payload: JiraIntegrationCreateRequest = Body(...),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.UPDATE_INCIDENTS, "alertmanager")),
-):
+) -> JSONDict:
     integrations = load_tenant_jira_integrations(current_user.tenant_id)
     visibility = normalize_visibility(payload.visibility, "private")
     shared_group_ids = (
@@ -73,7 +74,7 @@ async def create_jira_integration(
         bearer_token=payload.bearerToken,
     )
 
-    item = {
+    item: JSONDict = {
         "id": str(uuid.uuid4()),
         "name": (payload.name or "Jira").strip() or "Jira",
         "createdBy": current_user.user_id,
@@ -98,13 +99,13 @@ async def update_jira_integration(
     integration_id: str,
     payload: JiraIntegrationUpdateRequest = Body(...),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.UPDATE_INCIDENTS, "alertmanager")),
-):
+) -> JSONDict:
     integrations = load_tenant_jira_integrations(current_user.tenant_id)
     index = next((i for i, item in enumerate(integrations) if str(item.get("id")) == integration_id), None)
     if index is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Jira integration not found")
 
-    current = integrations[index]
+    current: JSONDict = integrations[index]
     if str(current.get("createdBy") or "") != current_user.user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only integration owner can update this integration")
 
@@ -121,9 +122,10 @@ async def update_jira_integration(
     if current.get("visibility") != "group":
         current["sharedGroupIds"] = []
     else:
+        current_shared_group_ids = current.get("sharedGroupIds")
         current["sharedGroupIds"] = validate_shared_group_ids_for_user(
             current_user.tenant_id,
-            current.get("sharedGroupIds") or [],
+            current_shared_group_ids if isinstance(current_shared_group_ids, list) else [],
             current_user,
         )
 
@@ -140,13 +142,18 @@ async def update_jira_integration(
     if "supportsSso" in fields:
         current["supportsSso"] = bool(payload.supportsSso)
 
-    next_auth_mode = normalize_jira_auth_mode(current.get("authMode"))
+    auth_mode_raw = current.get("authMode")
+    base_url_raw = current.get("baseUrl")
+    email_raw = current.get("email")
+    api_token_raw = current.get("apiToken")
+    bearer_token_raw = current.get("bearerToken")
+    next_auth_mode = normalize_jira_auth_mode(str(auth_mode_raw) if auth_mode_raw is not None else None)
     validate_jira_credentials(
-        base_url=current.get("baseUrl"),
+        base_url=str(base_url_raw) if base_url_raw is not None else None,
         auth_mode=next_auth_mode,
-        email=current.get("email"),
-        api_token=decrypt_tenant_secret(current["apiToken"]) if current.get("apiToken") else None,
-        bearer_token=decrypt_tenant_secret(current["bearerToken"]) if current.get("bearerToken") else None,
+        email=str(email_raw) if email_raw is not None else None,
+        api_token=decrypt_tenant_secret(str(api_token_raw) if api_token_raw is not None else None) if api_token_raw else None,
+        bearer_token=decrypt_tenant_secret(str(bearer_token_raw) if bearer_token_raw is not None else None) if bearer_token_raw else None,
     )
     current["authMode"] = next_auth_mode
     current["supportsSso"] = next_auth_mode == "sso"
@@ -161,7 +168,7 @@ async def update_jira_integration(
 async def delete_jira_integration(
     integration_id: str,
     current_user: TokenData = Depends(require_permission_with_scope(Permission.UPDATE_INCIDENTS, "alertmanager")),
-):
+) -> JSONDict:
     integrations = load_tenant_jira_integrations(current_user.tenant_id)
     index = next((i for i, item in enumerate(integrations) if str(item.get("id")) == integration_id), None)
     if index is None:
@@ -184,7 +191,7 @@ async def hide_jira_integration(
     integration_id: str,
     payload: HideTogglePayload = Body(...),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_INCIDENTS, "alertmanager")),
-):
+) -> JSONDict:
     integrations = load_tenant_jira_integrations(current_user.tenant_id)
     match = next((item for item in integrations if str(item.get("id")) == integration_id), None)
     if not match or not jira_integration_has_access(match, current_user, write=False):

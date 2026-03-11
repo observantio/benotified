@@ -10,6 +10,7 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from datetime import datetime
 
+from custom_types.json import JSONDict
 from models.alerting.alerts import Alert
 
 NO_VALUE = "(none)"
@@ -31,10 +32,20 @@ def _status_text(action: str) -> str:
         return "RESOLVED"
     return "FIRING"
 
-def _fmt(value) -> str:
+def _fmt(value: object) -> str:
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value) if value is not None else "unknown"
+
+
+def _alert_start_timestamp(alert: Alert) -> int | None:
+    raw = str(alert.starts_at or "").strip()
+    if not raw:
+        return None
+    try:
+        return int(datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp())
+    except ValueError:
+        return None
 
 
 def get_label(alert: Alert, key: str, default: str = "") -> str:
@@ -156,7 +167,7 @@ def format_alert_body(alert: Alert, action: str) -> str:
     return "\n".join(lines)
 
 
-def build_slack_payload(alert: Alert, action: str) -> dict:
+def build_slack_payload(alert: Alert, action: str) -> JSONDict:
     severity = get_label(alert, "severity").lower()
     status_text = _status_text(action)
 
@@ -167,38 +178,36 @@ def build_slack_payload(alert: Alert, action: str) -> dict:
     else:
         color = "warning"
 
-    ts = (
-        int(alert.starts_at.timestamp())
-        if isinstance(alert.starts_at, datetime)
-        else None
-    )
+    ts = _alert_start_timestamp(alert)
 
-    attachment = {
+    fields: list[JSONDict] = [
+        {"title": "Severity", "value": severity or "unknown", "short": True},
+        {"title": "Status", "value": status_text, "short": True},
+        {"title": "Correlation ID", "value": _context_value(alert, "beobservantCorrelationId", "correlation_id", "correlationId", "group") or NO_VALUE, "short": True},
+        {
+            "title": "Created by",
+            "value": _context_value(
+                alert,
+                "beobservantCreatedByUsername",
+                "created_by_username",
+                "createdByUsername",
+                "beobservantCreatedBy",
+                "created_by",
+                "createdBy",
+            )
+            or NO_VALUE,
+            "short": True,
+        },
+        {"title": "Product", "value": _context_value(alert, "beobservantProductName", "product") or NO_VALUE, "short": True},
+        {"title": "Summary", "value": get_annotation(alert, "summary") or NO_VALUE, "short": False},
+        {"title": "Description", "value": get_annotation(alert, "description") or NO_VALUE, "short": False},
+    ]
+
+    attachment: JSONDict = {
         "color": color,
         "title": f"[{status_text}] {get_label(alert, 'alertname', 'Alert')}",
         "text": get_alert_text(alert),
-        "fields": [
-            {"title": "Severity", "value": severity or "unknown", "short": True},
-            {"title": "Status", "value": status_text, "short": True},
-            {"title": "Correlation ID", "value": _context_value(alert, "beobservantCorrelationId", "correlation_id", "correlationId", "group") or NO_VALUE, "short": True},
-            {
-                "title": "Created by",
-                "value": _context_value(
-                    alert,
-                    "beobservantCreatedByUsername",
-                    "created_by_username",
-                    "createdByUsername",
-                    "beobservantCreatedBy",
-                    "created_by",
-                    "createdBy",
-                )
-                or NO_VALUE,
-                "short": True,
-            },
-            {"title": "Product", "value": _context_value(alert, "beobservantProductName", "product") or NO_VALUE, "short": True},
-            {"title": "Summary", "value": get_annotation(alert, "summary") or NO_VALUE, "short": False},
-            {"title": "Description", "value": get_annotation(alert, "description") or NO_VALUE, "short": False},
-        ],
+        "fields": fields,
         "footer": f"Started at: {_fmt(alert.starts_at)}",
     }
 
@@ -208,7 +217,7 @@ def build_slack_payload(alert: Alert, action: str) -> dict:
     return {"attachments": [attachment]}
 
 
-def build_teams_payload(alert: Alert, action: str) -> dict:
+def build_teams_payload(alert: Alert, action: str) -> JSONDict:
     severity = get_label(alert, "severity").lower()
     status_text = _status_text(action)
 
@@ -252,7 +261,7 @@ def build_teams_payload(alert: Alert, action: str) -> dict:
     }
 
 
-def build_pagerduty_payload(alert: Alert, action: str, routing_key: str) -> dict:
+def build_pagerduty_payload(alert: Alert, action: str, routing_key: str) -> JSONDict:
     status_text = _status_text(action)
     event_action = "resolve" if status_text == "RESOLVED" else "trigger"
 

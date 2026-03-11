@@ -51,7 +51,7 @@ class HybridRateLimiter:
                 return self._redis_limiter.hit(key, limit=limit, window_seconds=window_seconds)
             except HTTPException:
                 raise
-            except Exception as exc:
+            except (ConnectionError, OSError, RuntimeError, TimeoutError, ValueError) as exc:
                 now = time.monotonic()
                 if now - self._last_warning > 30:
                     logger.warning("Redis rate limiter unavailable, falling back: %s", type(exc).__name__)

@@ -10,7 +10,9 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from fastapi import Request
+from starlette.responses import Response
 
 _CSP_HEADER_VALUE = (
     "default-src 'self'; "
@@ -26,7 +28,10 @@ def _is_https_request(request: Request) -> bool:
     return scheme == "https"
 
 
-async def security_headers_middleware(request: Request, call_next):
+async def security_headers_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")

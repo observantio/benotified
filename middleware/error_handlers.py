@@ -10,16 +10,14 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 from functools import wraps
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Awaitable, Callable, TypeVar
 import logging
 
 import httpx
 from fastapi import HTTPException, status, Request
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
-
-F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 logger = logging.getLogger(__name__)
+RouteResult = TypeVar("RouteResult")
 
 def handle_route_errors(
     *,
@@ -28,11 +26,11 @@ def handle_route_errors(
     bad_gateway_exceptions: tuple[type[Exception], ...] = (httpx.HTTPError,),
     bad_gateway_detail: str = "Upstream request failed",
     internal_detail: str | None = "Internal server error",
-) -> Callable[[F], F]:
+) -> Callable[[Callable[..., Awaitable[RouteResult]]], Callable[..., Awaitable[RouteResult]]]:
 
-    def decorator(func: F) -> F:
+    def decorator(func: Callable[..., Awaitable[RouteResult]]) -> Callable[..., Awaitable[RouteResult]]:
         @wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+        async def wrapper(*args: object, **kwargs: object) -> RouteResult:
             try:
                 return await func(*args, **kwargs)
             except HTTPException:
@@ -59,12 +57,13 @@ def handle_route_errors(
 
 def validation_exception_handler(
     request: Request,
-    exc: RequestValidationError,
+    exc: Exception,
 ) -> JSONResponse:
     logger.warning(f"Request validation error for {request.url}: {exc}")
+    detail = exc.errors() if hasattr(exc, "errors") else [{"msg": str(exc)}]
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-        content={"detail": exc.errors()},
+        content={"detail": detail},
     )
 
 

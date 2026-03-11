@@ -25,7 +25,7 @@ def _sanitize_redis_url(url: str) -> str:
         p = urlparse(url)
         host = f"{p.hostname}:{p.port}" if p.port else (p.hostname or "")
         return urlunparse(p._replace(netloc=host))
-    except Exception:
+    except (AttributeError, ValueError):
         return "<redis-url>"
 
 
@@ -40,8 +40,8 @@ class RedisFixedWindowRateLimiter:
     ) -> None:
         try:
             redis = import_module("redis")
-        except Exception:
-            raise RuntimeError("redis package is not installed")
+        except ImportError as exc:
+            raise RuntimeError("redis package is not installed") from exc
 
         self._key_prefix = key_prefix
 
@@ -56,7 +56,7 @@ class RedisFixedWindowRateLimiter:
         try:
             if not client.ping():
                 raise RuntimeError("redis ping returned falsy response")
-        except Exception as exc:
+        except (ConnectionError, OSError, RuntimeError, TimeoutError) as exc:
             raise RuntimeError(
                 f"unable to connect to Redis at {_sanitize_redis_url(redis_url)}: {exc}"
             ) from exc

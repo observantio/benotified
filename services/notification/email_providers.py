@@ -12,8 +12,10 @@ import logging
 from email.message import EmailMessage
 from email.utils import parseaddr
 
+import aiosmtplib
 import httpx
 
+from custom_types.json import JSONDict
 from . import transport
 
 logger = logging.getLogger(__name__)
@@ -46,7 +48,7 @@ async def send_via_sendgrid(
 ) -> bool:
     recipients = _sanitize_recipients(recipients)
 
-    payload = {
+    payload: JSONDict = {
         "personalizations": [{"to": [{"email": r} for r in recipients]}],
         "from": {"email": smtp_from},
         "subject": subject,
@@ -71,8 +73,8 @@ async def send_via_sendgrid(
         logger.error("SendGrid rejected request", extra={"status": e.response.status_code})
     except httpx.HTTPError:
         logger.exception("SendGrid transport failure")
-    except Exception:
-        logger.exception("Unexpected SendGrid error")
+    except Exception:  # pylint: disable=broad-exception-caught
+        logger.exception("SendGrid unexpected failure")
 
     return False
 
@@ -86,7 +88,7 @@ async def send_via_resend(
 ) -> bool:
     recipients = _sanitize_recipients(recipients)
 
-    payload = {
+    payload: JSONDict = {
         "from": smtp_from,
         "to": recipients,
         "subject": subject,
@@ -111,8 +113,8 @@ async def send_via_resend(
         logger.error("Resend rejected request", extra={"status": e.response.status_code})
     except httpx.HTTPError:
         logger.exception("Resend transport failure")
-    except Exception:
-        logger.exception("Unexpected Resend error")
+    except Exception:  # pylint: disable=broad-exception-caught
+        logger.exception("Resend unexpected failure")
 
     return False
 
@@ -139,6 +141,9 @@ async def send_via_smtp(
             use_tls=use_tls,
         )
         return True
-    except Exception:
+    except (aiosmtplib.errors.SMTPException, OSError, TimeoutError, ValueError):
         logger.exception("SMTP delivery failed")
+        return False
+    except Exception:  # pylint: disable=broad-exception-caught
+        logger.exception("SMTP unexpected failure")
         return False

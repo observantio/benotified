@@ -7,10 +7,15 @@ from middleware.dependencies import require_any_permission_with_scope, require_p
 from middleware.error_handlers import handle_route_errors
 from models.access.auth_models import Permission, TokenData
 from models.alerting.alerts import Alert, AlertGroup
+from custom_types.json import JSONDict
 
 from .shared import INVALID_FILTER_LABELS_JSON, alertmanager_service, storage_service, sync_incidents
 
 router = APIRouter()
+
+
+def _json_dict(value: object) -> dict[str, object]:
+    return value if isinstance(value, dict) else {}
 
 
 @router.get("/alerts", response_model=List[Alert])
@@ -22,7 +27,7 @@ async def get_alerts(
     filter_labels: Optional[str] = Query(None),
     show_hidden: bool = Query(False),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_ALERTS, "alertmanager")),
-):
+) -> List[Alert]:
     labels = alertmanager_service.parse_filter_labels(filter_labels)
     alerts = await alertmanager_service.get_alerts(filter_labels=labels, active=active, silenced=silenced, inhibited=inhibited)
     alert_dicts = [alert.model_dump(by_alias=True) for alert in alerts]
@@ -47,9 +52,9 @@ async def get_alerts(
             filtered = [
                 alert
                 for alert in filtered
-                if str((alert.get("labels") or {}).get("alertname") or "") not in hidden_rule_names
+                if str(_json_dict(alert).get("labels") and _json_dict(_json_dict(alert).get("labels")).get("alertname") or "") not in hidden_rule_names
             ]
-    return [Alert(**item) for item in filtered]
+    return [Alert.model_validate(_json_dict(item)) for item in filtered]
 
 
 @router.get("/alerts/groups", response_model=List[AlertGroup])
@@ -57,7 +62,7 @@ async def get_alerts(
 async def get_alert_groups(
     filter_labels: Optional[str] = Query(None),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_ALERTS, "alertmanager")),
-):
+) -> List[AlertGroup]:
     return await alertmanager_service.get_alert_groups(filter_labels=alertmanager_service.parse_filter_labels(filter_labels))
 
 
@@ -67,7 +72,7 @@ async def post_alerts(
     current_user: TokenData = Depends(
         require_any_permission_with_scope([Permission.CREATE_ALERTS, Permission.WRITE_ALERTS], "alertmanager")
     ),
-):
+) -> JSONDict:
     if not await alertmanager_service.post_alerts(alerts):
         raise HTTPException(status_code=500, detail="Failed to post alerts")
     return {"status": "success", "count": len(alerts)}
@@ -78,7 +83,7 @@ async def post_alerts(
 async def delete_alerts(
     filter_labels: str = Query(...),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.DELETE_ALERTS, "alertmanager")),
-):
+) -> JSONDict:
     labels = alertmanager_service.parse_filter_labels(filter_labels)
     if not labels:
         raise HTTPException(status_code=400, detail="filter_labels cannot be empty")

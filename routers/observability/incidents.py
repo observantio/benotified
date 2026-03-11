@@ -11,9 +11,12 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 import logging
 from typing import List, Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.concurrency import run_in_threadpool
+from sqlalchemy.exc import SQLAlchemyError
 
+from custom_types.json import JSONDict
 from middleware.dependencies import require_permission_with_scope
 from middleware.error_handlers import handle_route_errors
 from models.access.auth_models import Permission, TokenData
@@ -45,7 +48,7 @@ async def get_incidents(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_INCIDENTS, "alertmanager")),
-):
+) -> List[AlertIncident]:
     return await run_in_threadpool(
         storage_service.list_incidents,
         tenant_id=current_user.tenant_id,
@@ -62,7 +65,7 @@ async def get_incidents(
 @router.get("/incidents/summary")
 async def get_incidents_summary(
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_INCIDENTS, "alertmanager")),
-):
+) -> JSONDict:
     return await run_in_threadpool(
         storage_service.get_incident_summary,
         current_user.tenant_id,
@@ -77,7 +80,7 @@ async def patch_incident(
     incident_id: str,
     payload: AlertIncidentUpdateRequest,
     current_user: TokenData = Depends(require_permission_with_scope(Permission.UPDATE_INCIDENTS, "alertmanager")),
-):
+) -> AlertIncident:
     group_ids = getattr(current_user, "group_ids", []) or []
     existing = await run_in_threadpool(
         storage_service.get_incident_for_user,
@@ -106,7 +109,7 @@ async def patch_incident(
                         filter_labels={"fingerprint": existing.fingerprint},
                         active=True,
                     )
-            except Exception:
+            except httpx.HTTPError:
                 active_alerts = []
             if active_alerts:
                 raise HTTPException(
@@ -137,10 +140,10 @@ async def patch_incident(
                 incident_id,
                 current_user.tenant_id,
                 current_user.user_id,
-                AlertIncidentUpdateRequest(note=assignment_note),
+                AlertIncidentUpdateRequest.model_validate({"note": assignment_note}),
                 group_ids,
             )
-        except Exception:
+        except SQLAlchemyError:
             logger.exception("Failed to record assignment note for incident %s", incident_id)
         await sync_note_to_jira_comment(
             updated,
@@ -154,16 +157,13 @@ async def patch_incident(
             current_user=current_user,
         )
 
-        try:
-            await notification_service.send_incident_assignment_email(
-                recipient_email=updated.assignee,
-                incident_title=updated.alert_name,
-                incident_status=updated.status,
-                incident_severity=updated.severity,
-                actor=current_user.username or current_user.user_id,
-            )
-        except Exception:
-            logger.exception("Failed to send assignment email for incident %s", incident_id)
+        await notification_service.send_incident_assignment_email(
+            recipient_email=updated.assignee,
+            incident_title=updated.alert_name,
+            incident_status=updated.status,
+            incident_severity=updated.severity,
+            actor=current_user.username or current_user.user_id,
+        )
 
     if payload.note:
         await sync_note_to_jira_comment(

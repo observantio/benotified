@@ -1,10 +1,22 @@
+"""
+Entrypoint for the BeNotified service.
+
+Copyright (c) 2026 Stefan Kumarasinghe
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
+"""
+
 from __future__ import annotations
 
 import logging
 import secrets
+from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.responses import Response
 from config import config
 from database import connection_test, ensure_database_exists, init_database, init_db
 from middleware.headers import security_headers_middleware
@@ -47,7 +59,10 @@ app.add_middleware(
 
 
 @app.middleware("http")
-async def require_internal_service_token(request: Request, call_next):
+async def require_internal_service_token(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
     allowed_paths = {"/health", "/ready"}
     if config.ENABLE_API_DOCS:
         allowed_paths.update({"/docs", "/redoc", "/openapi.json"})
@@ -84,18 +99,18 @@ app.include_router(alertmanager_webhook_router, prefix="/internal/v1/alertmanage
 
 
 @app.get("/health")
-async def health() -> dict:
+async def health() -> dict[str, str]:
     return {"status": "healthy", "service": "benotified"}
 
 
-@app.get("/ready")
-async def ready():
-    checks = {"database": connection_test()}
+@app.get("/ready", response_model=None)
+async def ready() -> JSONResponse:
+    checks: dict[str, bool] = {"database": connection_test()}
     ok = all(checks.values())
-    payload = {"status": "ready" if ok else "not_ready", "checks": checks}
+    payload: dict[str, bool | str | dict[str, bool]] = {"status": "ready" if ok else "not_ready", "checks": checks}
     if not ok:
         return JSONResponse(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, content=payload)
-    return payload
+    return JSONResponse(status_code=status.HTTP_200_OK, content=payload)
 
 
 if __name__ == "__main__":

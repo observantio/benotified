@@ -8,24 +8,32 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
-from typing import Any, Dict, List
+from collections.abc import Mapping
 import json
 from json import JSONDecodeError
 
+from custom_types.json import JSONDict, is_json_object
+
 INCIDENT_META_KEY = "beobservant_meta"
 
-def parse_meta(annotations: Any) -> Dict[str, Any]:
+def parse_meta(annotations: object) -> JSONDict:
     if not isinstance(annotations, dict):
         return {}
     raw = annotations.get(INCIDENT_META_KEY)
-    if isinstance(raw, dict):
+    if is_json_object(raw):
         return raw
     if isinstance(raw, str):
         try:
-            return json.loads(raw)
+            payload = json.loads(raw)
+            if is_json_object(payload):
+                return payload
+            return {}
         except JSONDecodeError:
             return {}
     return {}
 
-def _safe_group_ids(meta: Dict[str, Any]) -> List[str]:
-    return [str(g) for g in (meta.get("shared_group_ids") or []) if isinstance(g, str) and g.strip()]
+def _safe_group_ids(meta: Mapping[str, object]) -> list[str]:
+    raw_group_ids = meta.get("shared_group_ids")
+    if not isinstance(raw_group_ids, list):
+        return []
+    return [str(group_id) for group_id in raw_group_ids if isinstance(group_id, str) and group_id.strip()]

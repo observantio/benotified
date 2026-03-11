@@ -9,10 +9,38 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 """
 
 import re
-from typing import Dict, List, Any
+from typing import List
+
+from custom_types.json import JSONDict
 from services.common.url_utils import is_safe_http_url
 
-def validate_channel_config(channel_type: str, channel_config: Dict[str, Any] | None) -> List[str]:
+
+def _as_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return str(value or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _as_text(value: object) -> str:
+    return value if isinstance(value, str) else str(value or "")
+
+
+def _as_optional_url(value: object) -> str | None:
+    text = _as_text(value).strip()
+    return text or None
+
+
+def _as_int(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None
+
+def validate_channel_config(channel_type: str, channel_config: JSONDict | None) -> List[str]:
     cfg = channel_config or {}
     normalized_type = str(channel_type or "").strip().lower()
     errors: List[str] = []
@@ -23,7 +51,7 @@ def validate_channel_config(channel_type: str, channel_config: Dict[str, Any] | 
         if not recipients:
             errors.append("Email channel requires at least one recipient in 'to'")
 
-        provider = (cfg.get('email_provider') or cfg.get('emailProvider') or 'smtp').strip().lower()
+        provider = _as_text(cfg.get('email_provider') or cfg.get('emailProvider') or 'smtp').strip().lower()
         if provider == 'smtp':
             smtp_host = cfg.get('smtp_host') or cfg.get('smtpHost')
             if not str(smtp_host or "").strip():
@@ -31,12 +59,11 @@ def validate_channel_config(channel_type: str, channel_config: Dict[str, Any] | 
 
             smtp_port = cfg.get('smtp_port') or cfg.get('smtpPort')
             if smtp_port is not None:
-                try:
-                    port_num = int(smtp_port)
-                    if not (1 <= port_num <= 65535):
-                        errors.append("SMTP email channel 'smtp_port' must be between 1 and 65535")
-                except (ValueError, TypeError):
+                port_num = _as_int(smtp_port)
+                if port_num is None:
                     errors.append("SMTP email channel 'smtp_port' must be a valid integer")
+                elif not 1 <= port_num <= 65535:
+                    errors.append("SMTP email channel 'smtp_port' must be between 1 and 65535")
         elif provider == 'sendgrid':
             api_key = cfg.get('sendgrid_api_key') or cfg.get('sendgridApiKey') or cfg.get('api_key') or cfg.get('apiKey')
             if not str(api_key or "").strip():
@@ -49,17 +76,17 @@ def validate_channel_config(channel_type: str, channel_config: Dict[str, Any] | 
             errors.append(f"Unsupported email provider '{provider}'")
 
     elif normalized_type == "slack":
-        webhook_url = cfg.get('webhook_url') or cfg.get('webhookUrl')
+        webhook_url = _as_optional_url(cfg.get('webhook_url') or cfg.get('webhookUrl'))
         if not is_safe_http_url(webhook_url):
             errors.append("Slack channel requires a valid 'webhook_url'")
 
     elif normalized_type == "teams":
-        webhook_url = cfg.get('webhook_url') or cfg.get('webhookUrl')
+        webhook_url = _as_optional_url(cfg.get('webhook_url') or cfg.get('webhookUrl'))
         if not is_safe_http_url(webhook_url):
             errors.append("Teams channel requires a valid 'webhook_url'")
 
     elif normalized_type == "webhook":
-        webhook_url = cfg.get('url') or cfg.get('webhook_url') or cfg.get('webhookUrl')
+        webhook_url = _as_optional_url(cfg.get('url') or cfg.get('webhook_url') or cfg.get('webhookUrl'))
         if not is_safe_http_url(webhook_url):
             errors.append("Webhook channel requires a valid URL")
 

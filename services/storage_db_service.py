@@ -11,12 +11,13 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+from custom_types.json import JSONDict
 from database import get_db_session
-from db_models import HiddenJiraIntegration, HiddenNotificationChannel, HiddenSilence
+from db_models import AlertRule as AlertRuleDB, HiddenJiraIntegration, HiddenNotificationChannel, HiddenSilence
 from models.alerting.channels import NotificationChannel, NotificationChannelCreate
 from models.alerting.incidents import AlertIncident, AlertIncidentUpdateRequest
 from models.alerting.rules import AlertRule, AlertRuleCreate
@@ -28,12 +29,12 @@ from services.storage.rules import RuleStorageService
 
 
 class DatabaseStorageService:
-    def __init__(self):
+    def __init__(self) -> None:
         self.channels = ChannelStorageService()
         self.incidents = IncidentStorageService()
         self.rules = RuleStorageService()
 
-    def sync_incidents_from_alerts(self, tenant_id: str, alerts: List[Dict[str, Any]], resolve_missing: bool = True) -> None:
+    def sync_incidents_from_alerts(self, tenant_id: str, alerts: List[JSONDict], resolve_missing: bool = True) -> None:
         return self.incidents.sync_incidents_from_alerts(tenant_id, alerts, resolve_missing)
 
     def list_incidents(
@@ -63,7 +64,7 @@ class DatabaseStorageService:
         tenant_id: str,
         user_id: str,
         group_ids: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+    ) -> JSONDict:
         return self.incidents.get_incident_summary(
             tenant_id=tenant_id,
             user_id=user_id,
@@ -111,8 +112,8 @@ class DatabaseStorageService:
         tenant_id: str,
         user_id: str,
         group_ids: Optional[List[str]],
-        alerts: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        alerts: List[JSONDict],
+    ) -> List[JSONDict]:
         return self.incidents.filter_alerts_for_user(tenant_id, user_id, group_ids, alerts)
 
     def get_public_alert_rules(self, tenant_id: str) -> List[AlertRule]:
@@ -150,7 +151,7 @@ class DatabaseStorageService:
     ) -> List[Tuple[AlertRule, str]]:
         return self.rules.get_alert_rules_with_owner(tenant_id, user_id, group_ids=group_ids, limit=limit, offset=offset)
 
-    def get_alert_rule_raw(self, rule_id: str, tenant_id: str):
+    def get_alert_rule_raw(self, rule_id: str, tenant_id: str) -> AlertRuleDB | None:
         return self.rules.get_alert_rule_raw(rule_id, tenant_id)
 
     def get_alert_rule(
@@ -248,7 +249,7 @@ class DatabaseStorageService:
         tenant_id: str,
         user_id: str,
         group_ids: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, object]:
         return self.channels.test_notification_channel(channel_id, tenant_id, user_id, group_ids=group_ids)
 
     def get_notification_channels_for_rule_name(
@@ -340,7 +341,7 @@ class DatabaseStorageService:
         group_id: str,
         removed_user_ids: Optional[List[str]] = None,
         removed_usernames: Optional[List[str]] = None,
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         with get_db_session() as db:
             return prune_removed_member_group_shares(
                 db,

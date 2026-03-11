@@ -5,11 +5,12 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from fastapi.concurrency import run_in_threadpool
 
 from config import config
+from custom_types.json import JSONDict
 from middleware.dependencies import require_any_permission_with_scope, require_permission_with_scope
 from middleware.error_handlers import handle_route_errors
 from models.access.auth_models import Permission, TokenData
 from models.alerting.alerts import Alert
-from models.alerting.channels import NotificationChannel, NotificationChannelCreate
+from models.alerting.channels import ChannelType, NotificationChannel, NotificationChannelCreate
 
 from .shared import HideTogglePayload, alertmanager_service, notification_service, storage_service, validate_channel
 
@@ -22,7 +23,7 @@ async def get_notification_channels(
     offset: int = Query(0, ge=0),
     show_hidden: bool = Query(False),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_CHANNELS, "alertmanager")),
-):
+) -> List[NotificationChannel]:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     channels = await run_in_threadpool(
         storage_service.get_notification_channels,
@@ -44,7 +45,7 @@ async def get_notification_channels(
 async def get_notification_channel(
     channel_id: str,
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_CHANNELS, "alertmanager")),
-):
+) -> NotificationChannel:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     channel = await run_in_threadpool(storage_service.get_notification_channel, channel_id, tenant_id, user_id, group_ids)
     if not channel:
@@ -60,7 +61,7 @@ async def hide_notification_channel(
     channel_id: str,
     payload: HideTogglePayload = Body(...),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_CHANNELS, "alertmanager")),
-):
+) -> JSONDict:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     channel = await run_in_threadpool(storage_service.get_notification_channel, channel_id, tenant_id, user_id, group_ids)
     if not channel:
@@ -82,7 +83,7 @@ async def create_notification_channel(
     current_user: TokenData = Depends(
         require_any_permission_with_scope([Permission.CREATE_CHANNELS, Permission.WRITE_CHANNELS], "alertmanager")
     ),
-):
+) -> NotificationChannel:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     validate_channel(channel, notification_service)
     return await run_in_threadpool(storage_service.create_notification_channel, channel, tenant_id, user_id, group_ids)
@@ -95,7 +96,7 @@ async def update_notification_channel(
     current_user: TokenData = Depends(
         require_any_permission_with_scope([Permission.UPDATE_CHANNELS, Permission.WRITE_ALERTS], "alertmanager")
     ),
-):
+) -> NotificationChannel:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     validate_channel(channel, notification_service)
     updated_channel = await run_in_threadpool(storage_service.update_notification_channel, channel_id, channel, tenant_id, user_id, group_ids)
@@ -109,7 +110,7 @@ async def update_notification_channel(
 async def delete_notification_channel(
     channel_id: str,
     current_user: TokenData = Depends(require_permission_with_scope(Permission.DELETE_CHANNELS, "alertmanager")),
-):
+) -> JSONDict:
     tenant_id, user_id, _ = alertmanager_service.user_scope(current_user)
     if not await run_in_threadpool(storage_service.delete_notification_channel, channel_id, tenant_id, user_id):
         raise HTTPException(status_code=404, detail=f"Notification channel {channel_id} not found or access denied")
@@ -123,7 +124,7 @@ async def test_notification_channel(
     current_user: TokenData = Depends(
         require_any_permission_with_scope([Permission.TEST_CHANNELS, Permission.WRITE_CHANNELS], "alertmanager")
     ),
-):
+) -> JSONDict:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     if not await run_in_threadpool(storage_service.is_notification_channel_owner, channel_id, tenant_id, user_id):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only channel owner can test this channel")
@@ -137,17 +138,27 @@ async def test_notification_channel(
             detail="Channel is disabled. Enable it before sending a test notification.",
         )
 
-    test_alert = Alert(
-        labels={"alertname": "InvokableTestAlert", "severity": "INFO"},
-        annotations={
+    test_alert = Alert.model_validate({
+        "labels": {"alertname": "InvokableTestAlert", "severity": "INFO"},
+        "annotations": {
             "summary": "You have invoked a test alert",
             "description": "This is a test notification from BeObservant. Please ignore this alert if you didn't expect it.",
         },
-        startsAt=datetime.now(timezone.utc).isoformat(),
-        status={"state": "active", "silencedBy": [], "inhibitedBy": []},
-        fingerprint="test",
-    )
+        "startsAt": datetime.now(timezone.utc).isoformat(),
+        "endsAt": None,
+        "generatorURL": None,
+        "status": {"state": "active", "silencedBy": [], "inhibitedBy": []},
+        "fingerprint": "test",
+    })
 
     if await notification_service.send_notification(channel, test_alert, "test"):
         return {"status": "success", "message": f"Test notification sent to {channel.name}"}
-    raise HTTPException(status_code=500, detail="Failed to send test notification")
+    if channel.type == ChannelType.WEBHOOK:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Webhook test failed. Destination must accept HTTP POST and return a 2xx response.",
+        )
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=f"Failed to send test notification for {channel.type} channel. Verify configuration and destination availability.",
+    )

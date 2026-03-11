@@ -35,5 +35,6 @@ email-validator==2.1.0
 aiosmtplib==1.1.6
 tenacity==8.2.2
 PyYAML==6.0.2
+types-PyYAML==6.0.12.20250915
 redis==5.0.8
 hvac

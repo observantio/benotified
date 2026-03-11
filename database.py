@@ -11,9 +11,10 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 import logging
 import os
 from contextlib import contextmanager
-from typing import Generator, Iterator, Optional
+from typing import Callable, Generator, Iterator, Optional
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -22,7 +23,7 @@ from db_models import Base
 logger = logging.getLogger(__name__)
 
 _engine: Optional[Engine] = None
-_SessionLocal: Optional[sessionmaker] = None
+_session_local: Optional[Callable[[], Session]] = None
 
 
 def ensure_database_exists(database_url: str) -> None:
@@ -52,7 +53,7 @@ def init_database(
     echo: bool = False,
     pool_size: Optional[int] = None,
 ) -> None:
-    global _engine, _SessionLocal
+    global _engine, _session_local
 
     if _engine is not None:
         logger.debug("Database already initialized; skipping re-init.")
@@ -68,7 +69,7 @@ def init_database(
         echo=echo,
     )
 
-    _SessionLocal = sessionmaker(
+    _session_local = sessionmaker(
         bind=_engine,
         autocommit=False,
         autoflush=False,
@@ -76,10 +77,10 @@ def init_database(
     )
 
 
-def _require_session_factory() -> sessionmaker:
-    if _SessionLocal is None:
+def _require_session_factory() -> Callable[[], Session]:
+    if _session_local is None:
         raise RuntimeError("Database not initialized. Call init_database() first.")
-    return _SessionLocal
+    return _session_local
 
 
 @contextmanager
@@ -114,14 +115,14 @@ def connection_test() -> bool:
         with _engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         return True
-    except Exception as exc:
+    except SQLAlchemyError as exc:
         logger.debug("DB connection test failed: %s", exc)
         return False
 
 
 def dispose_database() -> None:
-    global _engine, _SessionLocal
-    _SessionLocal = None
+    global _engine, _session_local
+    _session_local = None
     if _engine is not None:
         try:
             _engine.dispose()

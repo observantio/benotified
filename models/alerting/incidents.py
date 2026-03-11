@@ -70,3 +70,5 @@ class AlertIncidentUpdateRequest(BaseModel):
     jira_ticket_url: Optional[str] = Field(None, alias="jiraTicketUrl")
     jira_integration_id: Optional[str] = Field(None, alias="jiraIntegrationId")
     hide_when_resolved: Optional[bool] = Field(None, alias="hideWhenResolved")
+
+    model_config = ConfigDict(populate_by_name=True)

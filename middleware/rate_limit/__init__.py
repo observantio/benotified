@@ -56,7 +56,7 @@ def _build_rate_limiter() -> HybridRateLimiter:
         )
         logger.info("Using Redis-backed rate limiter")
         return HybridRateLimiter(redis_limiter, fallback)
-    except Exception as exc:
+    except (ConnectionError, ImportError, OSError, RuntimeError, TimeoutError, ValueError) as exc:
         logger.warning("Failed to initialize Redis rate limiter, using in-memory fallback: %s", exc)
         if config.IS_PRODUCTION:
             logger.warning("Redis rate limiting failed in production; rate limiting is process-local only")

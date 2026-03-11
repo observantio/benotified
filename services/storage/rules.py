@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import List, Optional, Tuple, cast
+from typing import List, Optional, Tuple
 
 from sqlalchemy.orm import joinedload
 
@@ -28,8 +28,16 @@ from services.storage.serializers import rule_to_pydantic
 logger = logging.getLogger(__name__)
 
 
-def _shared_group_ids(db_obj) -> List[str]:
-    return [g.id for g in db_obj.shared_groups] if getattr(db_obj, "shared_groups", None) else []
+def _shared_group_ids(db_obj: AlertRuleDB) -> List[str]:
+    return [g.id for g in db_obj.shared_groups] if db_obj.shared_groups else []
+
+
+def _visibility_of(rule: AlertRuleDB) -> str:
+    return str(rule.visibility or "private")
+
+
+def _creator_of(rule: AlertRuleDB) -> str:
+    return str(rule.created_by or "")
 
 class RuleStorageService:
     def get_alert_rule_by_name_for_delivery(
@@ -154,7 +162,7 @@ class RuleStorageService:
             )
             out: List[AlertRule] = []
             for r in rules:
-                if has_access(cast(str, r.visibility or "private"), cast(str, r.created_by), user_id, _shared_group_ids(r), group_ids):
+                if has_access(_visibility_of(r), _creator_of(r), user_id, _shared_group_ids(r), group_ids):
                     out.append(rule_to_pydantic(r))
             return out
 
@@ -191,8 +199,8 @@ class RuleStorageService:
 
             out: List[Tuple[AlertRule, str]] = []
             for r in rules:
-                if has_access(cast(str, r.visibility or "private"), cast(str, r.created_by), user_id, _shared_group_ids(r), group_ids):
-                    out.append((rule_to_pydantic(r), cast(str, r.created_by)))
+                if has_access(_visibility_of(r), _creator_of(r), user_id, _shared_group_ids(r), group_ids):
+                    out.append((rule_to_pydantic(r), _creator_of(r)))
             return out
 
     def get_alert_rule_raw(self, rule_id: str, tenant_id: str) -> Optional[AlertRuleDB]:
@@ -221,7 +229,7 @@ class RuleStorageService:
             )
             if not r:
                 return None
-            if not has_access(cast(str, r.visibility or "private"), cast(str, r.created_by), user_id, _shared_group_ids(r), group_ids):
+            if not has_access(_visibility_of(r), _creator_of(r), user_id, _shared_group_ids(r), group_ids):
                 return None
             return rule_to_pydantic(r)
 
@@ -254,7 +262,7 @@ class RuleStorageService:
                 rule,
                 db,
                 tenant_id,
-                cast(str, rule.visibility or "private"),
+                _visibility_of(rule),
                 rule_create.shared_group_ids,
                 actor_group_ids=group_ids,
             )
@@ -281,11 +289,11 @@ class RuleStorageService:
             )
             if not r:
                 return None
-            if not has_access(cast(str, r.visibility or "private"), cast(str, r.created_by), user_id, _shared_group_ids(r), group_ids):
+            if not has_access(_visibility_of(r), _creator_of(r), user_id, _shared_group_ids(r), group_ids):
                 return None
             if not has_access(
-                cast(str, r.visibility or "private"),
-                cast(str, r.created_by),
+                _visibility_of(r),
+                _creator_of(r),
                 user_id,
                 _shared_group_ids(r),
                 group_ids,
@@ -297,19 +305,19 @@ class RuleStorageService:
             r.name = rule_update.name
             r.group = rule_update.group
             r.expr = rule_update.expr
-            r.duration = rule_update.duration
+            r.duration = rule_update.duration or "5m"
             r.severity = rule_update.severity
-            r.labels = rule_update.labels or {}
-            r.annotations = rule_update.annotations or {}
+            r.labels = {str(key): value for key, value in (rule_update.labels or {}).items()}
+            r.annotations = {str(key): value for key, value in (rule_update.annotations or {}).items()}
             r.enabled = rule_update.enabled
-            r.notification_channels = rule_update.notification_channels or []
+            r.notification_channels = [str(channel) for channel in (rule_update.notification_channels or [])]
             r.visibility = rule_update.visibility or "private"
 
             assign_shared_groups(
                 r,
                 db,
                 tenant_id,
-                cast(str, r.visibility or "private"),
+                _visibility_of(r),
                 rule_update.shared_group_ids,
                 actor_group_ids=group_ids,
             )
@@ -335,8 +343,8 @@ class RuleStorageService:
             if not r:
                 return False
             if not has_access(
-                cast(str, r.visibility or "private"),
-                cast(str, r.created_by),
+                _visibility_of(r),
+                _creator_of(r),
                 user_id,
                 _shared_group_ids(r),
                 group_ids,

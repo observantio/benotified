@@ -10,7 +10,8 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
+from custom_types.json import JSONDict
 from models.alerting.rules import AlertRuleCreate, RuleSeverity
 from models.alerting.silences import Visibility
 from services.common.visibility import normalize_visibility
@@ -22,35 +23,35 @@ VALID_SEVERITIES = {"info", "warning", "error", "critical"}
 class RuleImportError(ValueError):
     pass
 
-def _as_str_map(raw: Any) -> Dict[str, str]:
+def _as_str_map(raw: object) -> dict[str, str]:
     if not isinstance(raw, dict):
         return {}
     return {str(k): str(v) for k, v in raw.items() if v is not None}
 
 
-def _normalize_visibility(value: Any, default_value: str = "private") -> str:
+def _normalize_visibility(value: object, default_value: str = "private") -> str:
     return normalize_visibility(
         str(value) if value is not None else None,
         default_value=default_value,
         public_alias="public",
-        allowed={"tenant", "group", "private", "public"},
+        allowed=frozenset({"tenant", "group", "private", "public"}),
     )
 
 def _normalize_rule_entry(
     group_name: str,
-    rule_data: Dict[str, Any],
-    defaults: Dict[str, Any],
+    rule_data: JSONDict,
+    defaults: JSONDict,
 ) -> AlertRuleCreate:
-    alert_name = (rule_data.get("alert") or rule_data.get("name") or "").strip()
+    alert_name = str(rule_data.get("alert") or rule_data.get("name") or "").strip()
     if not alert_name:
         raise RuleImportError("Rule is missing required field 'alert'")
 
-    expr = (rule_data.get("expr") or "").strip()
+    expr = str(rule_data.get("expr") or "").strip()
     if not expr:
         raise RuleImportError(f"Rule '{alert_name}' is missing required field 'expr'")
 
     be_meta_raw = rule_data.get("beobservant")
-    be_meta: Dict[str, Any] = be_meta_raw if isinstance(be_meta_raw, dict) else {}
+    be_meta: JSONDict = be_meta_raw if isinstance(be_meta_raw, dict) else {}
 
     labels = _as_str_map(rule_data.get("labels"))
     annotations = _as_str_map(rule_data.get("annotations"))
@@ -63,7 +64,7 @@ def _normalize_rule_entry(
     severity_enum = RuleSeverity(severity)
     channels_raw = be_meta.get("channels")
     channels_src = channels_raw if isinstance(channels_raw, list) else defaults.get("channels")
-    channels = [str(c).strip() for c in (channels_src or []) if str(c).strip()]
+    channels = [str(c).strip() for c in channels_src] if isinstance(channels_src, list) else []
     shared_raw = be_meta.get("sharedGroupIds")
     shared_src = shared_raw if isinstance(shared_raw, list) else []
     shared_group_ids = [str(gid).strip() for gid in shared_src if str(gid).strip()]
@@ -87,7 +88,7 @@ def _normalize_rule_entry(
     )
 
 
-def parse_rules_yaml(yaml_content: str, defaults: Optional[Dict[str, Any]] = None) -> List[AlertRuleCreate]:
+def parse_rules_yaml(yaml_content: str, defaults: Optional[JSONDict] = None) -> List[AlertRuleCreate]:
     if not (yaml_content or "").strip():
         raise RuleImportError("YAML content is required")
 

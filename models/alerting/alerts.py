@@ -8,9 +8,11 @@ you may not use this file except in compliance with the License.
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 """
 
-from typing import Dict, List, Optional, Any, Union
+from typing import Dict, List, Optional, Union
 from pydantic import BaseModel, ConfigDict, Field
 from enum import Enum
+
+from custom_types.json import JSONDict
 
 DESC_CURRENT_STATE_ALERT = "Current state of the alert"
 DESC_LIST_SILENCES_SILENCE_ALERT = "List of silences that silence this alert"
@@ -47,7 +49,7 @@ class Alert(BaseModel):
     ends_at: Optional[str] = Field(None, alias="endsAt", description=DESC_TIME_ALERT_STOPPED_FIRING)
     generator_url: Optional[str] = Field(None, alias="generatorURL", description=DESC_URL_ALERT_GENERATOR)
     status: AlertStatus = Field(..., description=DESC_CURRENT_STATUS_ALERT)
-    receivers: Optional[List[Union[str, Dict[str, Any]]]] = Field(default_factory=list, description=DESC_LIST_RECEIVERS_ALERT)
+    receivers: Optional[List[Union[str, JSONDict]]] = Field(default_factory=list, description=DESC_LIST_RECEIVERS_ALERT)
     fingerprint: Optional[str] = Field(None, description=DESC_UNIQUE_IDENTIFIER_ALERT)
     model_config = ConfigDict(populate_by_name=True)
 

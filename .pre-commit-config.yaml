@@ -7,3 +7,45 @@ repos:
         entry: bash -lc 'python -m pytest -q'
         pass_filenames: false
         always_run: true
+
+      - id: benotified-mypy
+        name: BeNotified mypy
+        language: system
+        entry: >-
+          bash -lc 'APP_ENV=development
+          ENVIRONMENT=development
+          DATABASE_URL=postgresql://ci_user:ci_password_123@localhost:5432/beobservant
+          BENOTIFIED_DATABASE_URL=postgresql://ci_user:ci_password_123@localhost:5432/benotified
+          CORS_ORIGINS=http://localhost:3000
+          CORS_ALLOW_CREDENTIALS=true
+          JWT_AUTO_GENERATE_KEYS=true
+          GATEWAY_INTERNAL_SERVICE_TOKEN=ci_gateway_internal_service_token_123456789
+          BENOTIFIED_EXPECTED_SERVICE_TOKEN=ci_benotified_expected_service_token_123456789
+          BENOTIFIED_CONTEXT_VERIFY_KEY=ci_benotified_context_verify_key_12345678901234567890
+          BENOTIFIED_CONTEXT_SIGNING_KEY=ci_benotified_context_signing_key_12345678901234567890
+          INBOUND_WEBHOOK_TOKEN=ci_inbound_webhook_token_123456789
+          PYTHONPATH=$PWD
+          mypy --config-file "$PWD/mypy.ini" .'
+        pass_filenames: false
+        always_run: true
+
+      - id: benotified-pylint
+        name: BeNotified pylint
+        language: system
+        entry: >-
+          bash -lc 'APP_ENV=development
+          ENVIRONMENT=development
+          DATABASE_URL=postgresql://ci_user:ci_password_123@localhost:5432/beobservant
+          BENOTIFIED_DATABASE_URL=postgresql://ci_user:ci_password_123@localhost:5432/benotified
+          CORS_ORIGINS=http://localhost:3000
+          CORS_ALLOW_CREDENTIALS=true
+          JWT_AUTO_GENERATE_KEYS=true
+          GATEWAY_INTERNAL_SERVICE_TOKEN=ci_gateway_internal_service_token_123456789
+          BENOTIFIED_EXPECTED_SERVICE_TOKEN=ci_benotified_expected_service_token_123456789
+          BENOTIFIED_CONTEXT_VERIFY_KEY=ci_benotified_context_verify_key_12345678901234567890
+          BENOTIFIED_CONTEXT_SIGNING_KEY=ci_benotified_context_signing_key_12345678901234567890
+          INBOUND_WEBHOOK_TOKEN=ci_inbound_webhook_token_123456789
+          PYTHONPATH=$PWD
+          pylint --rcfile "$PWD/.pylintrc" $(find . -maxdepth 1 -mindepth 1 \( -type d -o -name "*.py" \) ! -name tests ! -name __pycache__ ! -name build ! -name dist ! -name tmp ! -name vendor | sort)'
+        pass_filenames: false
+        always_run: true

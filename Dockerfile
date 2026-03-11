@@ -28,6 +28,7 @@ COPY main.py ./
 COPY config.py ./
 COPY database.py ./
 COPY db_models.py ./
+COPY custom_types/ ./custom_types/
 COPY middleware/ ./middleware/
 COPY models/ ./models/
 COPY routers/ ./routers/

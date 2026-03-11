@@ -252,3 +252,45 @@ def test_sync_incidents_aggregates_metric_states_into_single_incident(monkeypatc
         assert len(incidents) == 1
         merged = str((incidents[0].annotations or {}).get(METRIC_STATES_ANNOTATION_KEY) or "")
         assert merged == "used,free,cached"
+
+
+def test_sync_incidents_skips_suppressed_alerts(monkeypatch):
+    SessionLocal = _session_factory()
+
+    @contextmanager
+    def fake_db_session():
+        db = SessionLocal()
+        try:
+            yield db
+            db.commit()
+        except Exception:
+            db.rollback()
+            raise
+        finally:
+            db.close()
+
+    monkeypatch.setattr(incidents_module, "get_db_session", fake_db_session)
+
+    service = IncidentStorageService()
+    tenant_id = "t1"
+
+    service.sync_incidents_from_alerts(
+        tenant_id,
+        [
+            {
+                "fingerprint": "fp-suppressed",
+                "labels": {
+                    "alertname": "system_memory_usage_bytes",
+                    "severity": "critical",
+                    "org_id": "org-1",
+                },
+                "annotations": {"summary": "suppressed"},
+                "status": {"state": "suppressed", "silencedBy": ["s1"], "inhibitedBy": []},
+            }
+        ],
+        resolve_missing=False,
+    )
+
+    with SessionLocal() as db:
+        incidents = db.query(AlertIncident).filter(AlertIncident.tenant_id == tenant_id).all()
+        assert len(incidents) == 0

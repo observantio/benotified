@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Body
 from fastapi.concurrency import run_in_threadpool
 
+from custom_types.json import JSONDict
 from models.alerting.requests import GroupSharePruneRequest
 
 from .shared import alertmanager_service, storage_service
@@ -11,7 +12,7 @@ router = APIRouter()
 @router.post("/access/group-shares/prune")
 async def prune_removed_member_group_shares(
     payload: GroupSharePruneRequest = Body(...),
-):
+) -> JSONDict:
     updated = await run_in_threadpool(
         storage_service.prune_removed_member_group_shares,
         payload.tenant_id,

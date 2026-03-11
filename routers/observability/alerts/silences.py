@@ -3,6 +3,7 @@ from typing import Dict, List, Optional
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 
+from custom_types.json import JSONDict
 from middleware.dependencies import require_any_permission_with_scope, require_permission_with_scope
 from middleware.error_handlers import handle_route_errors
 from models.access.auth_models import Permission, TokenData
@@ -26,7 +27,7 @@ async def get_silences(
     include_expired: bool = Query(False),
     show_hidden: bool = Query(False),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_SILENCES, "alertmanager")),
-):
+) -> List[Silence]:
     silences = await alertmanager_service.get_silences(filter_labels=alertmanager_service.parse_filter_labels(filter_labels))
     hidden_ids = set(
         await run_in_threadpool(
@@ -55,7 +56,7 @@ async def get_silence(
     silence_id: str,
     show_hidden: bool = Query(False),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_SILENCES, "alertmanager")),
-):
+) -> Silence:
     silence = await alertmanager_service.get_silence(silence_id)
     if not silence:
         raise HTTPException(status_code=404, detail=f"Silence {silence_id} not found")
@@ -82,7 +83,7 @@ async def create_silence(
     current_user: TokenData = Depends(
         require_any_permission_with_scope([Permission.CREATE_SILENCES, Permission.WRITE_ALERTS], "alertmanager")
     ),
-):
+) -> Dict[str, str]:
     silence_id = await alertmanager_service.create_silence(build_silence_payload(silence, current_user))
     if not silence_id:
         raise HTTPException(status_code=500, detail="Failed to create silence")
@@ -97,7 +98,7 @@ async def update_silence(
     current_user: TokenData = Depends(
         require_any_permission_with_scope([Permission.UPDATE_SILENCES, Permission.WRITE_ALERTS], "alertmanager")
     ),
-):
+) -> Dict[str, str]:
     existing = await alertmanager_service.get_silence(silence_id)
     if not existing:
         raise HTTPException(status_code=404, detail=f"Silence {silence_id} not found")
@@ -116,7 +117,7 @@ async def update_silence(
 async def delete_silence(
     silence_id: str,
     current_user: TokenData = Depends(require_permission_with_scope(Permission.DELETE_SILENCES, "alertmanager")),
-):
+) -> JSONDict:
     existing = await alertmanager_service.get_silence(silence_id)
     if not existing:
         raise HTTPException(status_code=404, detail=f"Silence {silence_id} not found or already deleted")
@@ -136,7 +137,7 @@ async def hide_silence(
     silence_id: str,
     payload: HideTogglePayload = Body(...),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_SILENCES, "alertmanager")),
-):
+) -> JSONDict:
     silence = await alertmanager_service.get_silence(silence_id)
     if not silence:
         raise HTTPException(status_code=404, detail=f"Silence {silence_id} not found")
@@ -145,7 +146,7 @@ async def hide_silence(
         raise HTTPException(status_code=404, detail=f"Silence {silence_id} not found")
 
     owner = str(getattr(silence, "created_by", "") or "")
-    if owner and owner in {str(current_user.username or ""), str(current_user.user_id or "")}:
+    if owner and owner == str(current_user.user_id or ""):
         raise HTTPException(status_code=403, detail="You cannot hide your own silence")
 
     ok = await run_in_threadpool(

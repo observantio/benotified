@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from sqlalchemy import (
     Boolean, Column, DateTime, ForeignKey, Index, String, Table, Text, JSON,
@@ -20,6 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from config import config
+from custom_types.json import JSONDict, JSONList
 
 
 class Base(DeclarativeBase):
@@ -65,7 +66,7 @@ class Tenant(Base):
     name:         Mapped[str]            = mapped_column(String(100), unique=True, nullable=False, index=True)
     display_name: Mapped[Optional[str]]  = mapped_column(String(200))
     is_active:    Mapped[bool]           = mapped_column(Boolean,     default=True, nullable=False)
-    settings:     Mapped[Dict[str, Any]] = mapped_column(JSON,        default=dict)
+    settings:     Mapped[JSONDict] = mapped_column(JSON,        default=dict)
     created_at:   Mapped[datetime]       = mapped_column(DateTime,    default=_now, nullable=False)
     updated_at:   Mapped[datetime]       = mapped_column(DateTime,    default=_now, onupdate=_now, nullable=False)
 
@@ -112,10 +113,10 @@ class AlertRule(Base):
     expr:                  Mapped[str]            = mapped_column(Text,        nullable=False)
     duration:              Mapped[str]            = mapped_column(String(20),  nullable=False, default="5m")
     severity:              Mapped[str]            = mapped_column(String(20),  nullable=False, default="warning", index=True)
-    labels:                Mapped[Dict[str, Any]] = mapped_column(JSON,        default=dict)
-    annotations:           Mapped[Dict[str, Any]] = mapped_column(JSON,        default=dict)
+    labels:                Mapped[JSONDict] = mapped_column(JSON,        default=dict)
+    annotations:           Mapped[JSONDict] = mapped_column(JSON,        default=dict)
     enabled:               Mapped[bool]           = mapped_column(Boolean,     default=True, nullable=False)
-    notification_channels: Mapped[List[Any]]      = mapped_column(JSON,        default=list)
+    notification_channels: Mapped[JSONList]      = mapped_column(JSON,        default=list)
     visibility:            Mapped[str]            = mapped_column(String(20),  nullable=False, default="private", index=True)
     created_at:            Mapped[datetime]       = mapped_column(DateTime,    default=_now, nullable=False)
     updated_at:            Mapped[datetime]       = mapped_column(DateTime,    default=_now, onupdate=_now, nullable=False)
@@ -140,9 +141,9 @@ class AlertIncident(Base):
     severity:     Mapped[str]               = mapped_column(String(20),  nullable=False, default="warning", index=True)
     status:       Mapped[str]               = mapped_column(String(20),  nullable=False, default="open",    index=True)
     assignee:     Mapped[Optional[str]]     = mapped_column(String(200))
-    notes:        Mapped[List[Any]]         = mapped_column(JSON,        default=list)
-    labels:       Mapped[Dict[str, Any]]    = mapped_column(JSON,        default=dict)
-    annotations:  Mapped[Dict[str, Any]]    = mapped_column(JSON,        default=dict)
+    notes:        Mapped[JSONList]         = mapped_column(JSON,        default=list)
+    labels:       Mapped[JSONDict]    = mapped_column(JSON,        default=dict)
+    annotations:  Mapped[JSONDict]    = mapped_column(JSON,        default=dict)
     starts_at:    Mapped[Optional[datetime]] = mapped_column(DateTime,   index=True)
     last_seen_at: Mapped[datetime]          = mapped_column(DateTime,    nullable=False, default=_now, index=True)
     resolved_at:  Mapped[Optional[datetime]] = mapped_column(DateTime,   index=True)
@@ -165,7 +166,7 @@ class NotificationChannel(Base):
     created_by: Mapped[Optional[str]]  = mapped_column(String,      index=True)
     name:       Mapped[str]            = mapped_column(String(200), nullable=False, index=True)
     type:       Mapped[str]            = mapped_column(String(50),  nullable=False, index=True)
-    config:     Mapped[Dict[str, Any]] = mapped_column(JSON,        nullable=False, default=dict)
+    config:     Mapped[JSONDict] = mapped_column(JSON,        nullable=False, default=dict)
     enabled:    Mapped[bool]           = mapped_column(Boolean,     default=True, nullable=False)
     visibility: Mapped[str]            = mapped_column(String(20),  nullable=False, default="private", index=True)
     created_at: Mapped[datetime]       = mapped_column(DateTime,    default=_now, nullable=False)

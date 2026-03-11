@@ -6,6 +6,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, sta
 from fastapi.concurrency import run_in_threadpool
 
 from config import config
+from custom_types.json import JSONDict
 from database import get_db_session
 from db_models import Tenant
 from middleware.dependencies import (
@@ -15,7 +16,7 @@ from middleware.dependencies import (
 )
 from middleware.error_handlers import handle_route_errors
 from models.access.auth_models import Permission, TokenData
-from models.alerting.alerts import Alert, AlertState, AlertStatus
+from models.alerting.alerts import Alert
 from models.alerting.requests import RuleImportRequest
 from models.alerting.rules import AlertRule, AlertRuleCreate
 from services.alerting.rule_import_service import RuleImportError, parse_rules_yaml
@@ -42,12 +43,12 @@ async def import_alert_rules(
     current_user: TokenData = Depends(
         require_any_permission_with_scope([Permission.CREATE_RULES, Permission.WRITE_ALERTS], "alertmanager")
     ),
-):
+) -> JSONDict:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     try:
-        parsed_rules = parse_rules_yaml(payload.yamlContent, payload.defaults)
+        parsed_rules = parse_rules_yaml(payload.yamlContent or "", payload.defaults)
     except RuleImportError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     if payload.dryRun:
         return {"status": "preview", "count": len(parsed_rules), "rules": [item.model_dump(by_alias=True) for item in parsed_rules]}
@@ -62,7 +63,10 @@ async def import_alert_rules(
         key = (rule.name, rule.group, rule.org_id or "")
         current = existing_index.get(key)
         if current:
-            updated_rule = await run_in_threadpool(storage_service.update_alert_rule, current.id, rule, tenant_id, user_id, group_ids)
+            current_id = current.id
+            if current_id is None:
+                continue
+            updated_rule = await run_in_threadpool(storage_service.update_alert_rule, current_id, rule, tenant_id, user_id, group_ids)
             if updated_rule:
                 updated += 1
                 imported_rules.append(updated_rule)
@@ -92,7 +96,7 @@ async def get_alert_rules(
     offset: int = Query(0, ge=0),
     show_hidden: bool = Query(False),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_RULES, "alertmanager")),
-):
+) -> List[AlertRule]:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     hidden_ids = set(
         await run_in_threadpool(
@@ -114,7 +118,7 @@ async def get_alert_rules(
 
 
 @router.get("/public/rules", response_model=List[AlertRule])
-async def get_public_alert_rules(request: Request):
+async def get_public_alert_rules(request: Request) -> List[AlertRule]:
     enforce_public_endpoint_security(
         request,
         scope="alertmanager_public_rules",
@@ -144,7 +148,7 @@ async def list_metric_names(
             "alertmanager",
         )
     ),
-):
+) -> JSONDict:
     tenant_org_id = org_id or getattr(current_user, "org_id", None)
     if not tenant_org_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No org_id available to query metrics. Set a product / API key first.")
@@ -155,7 +159,7 @@ async def list_metric_names(
 async def get_alert_rule(
     rule_id: str,
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_RULES, "alertmanager")),
-):
+) -> AlertRule:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     rule = await run_in_threadpool(storage_service.get_alert_rule, rule_id, tenant_id, user_id, group_ids)
     if not rule:
@@ -180,7 +184,7 @@ async def hide_alert_rule(
     rule_id: str,
     payload: HideTogglePayload = Body(...),
     current_user: TokenData = Depends(require_permission_with_scope(Permission.READ_RULES, "alertmanager")),
-):
+) -> JSONDict:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     rule = await run_in_threadpool(storage_service.get_alert_rule, rule_id, tenant_id, user_id, group_ids)
     if not rule:
@@ -202,7 +206,7 @@ async def create_alert_rule(
     current_user: TokenData = Depends(
         require_any_permission_with_scope([Permission.CREATE_RULES, Permission.WRITE_ALERTS], "alertmanager")
     ),
-):
+) -> AlertRule:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     rule = _with_creator_username(rule, current_user)
     resolved_org_id = alertmanager_service.resolve_rule_org_id(rule.org_id, current_user)
@@ -223,7 +227,7 @@ async def update_alert_rule(
     current_user: TokenData = Depends(
         require_any_permission_with_scope([Permission.UPDATE_RULES, Permission.WRITE_ALERTS], "alertmanager")
     ),
-):
+) -> AlertRule:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     rule = _with_creator_username(rule, current_user)
     existing_rule = await run_in_threadpool(storage_service.get_alert_rule, rule_id, tenant_id, user_id, group_ids)
@@ -253,7 +257,7 @@ async def test_alert_rule(
     current_user: TokenData = Depends(
         require_any_permission_with_scope([Permission.TEST_RULES, Permission.WRITE_ALERTS], "alertmanager")
     ),
-):
+) -> JSONDict:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     rule = await run_in_threadpool(storage_service.get_alert_rule, rule_id, tenant_id, user_id, group_ids)
     if not rule:
@@ -268,45 +272,45 @@ async def test_alert_rule(
     if not channels:
         raise HTTPException(status_code=400, detail="No notification channels configured for this rule")
 
-    alert = Alert(
-        labels={"alertname": rule.name, "severity": rule.severity, **(rule.labels or {})},
-        annotations={
-            "summary": rule.annotations.get("summary", f"Test alert for {rule.name}"),
-            "description": rule.annotations.get("description", rule.expr),
-            "beobservantCorrelationId": str(getattr(rule, "group", "") or ""),
-            "beobservantCreatedBy": str(getattr(rule, "created_by", "") or ""),
-            "beobservantCreatedByUsername": str(
-                (rule.annotations or {}).get("beobservantCreatedByUsername")
-                or getattr(current_user, "username", "")
-                or getattr(rule, "created_by", "")
-                or ""
-            ),
-            "beobservantRuleName": str(getattr(rule, "name", "") or ""),
-            "beobservantProductName": str(
-                rule.annotations.get("beobservantProductName")
-                or rule.annotations.get("productName")
-                or rule.annotations.get("product_name")
-                or (rule.labels or {}).get("product")
-                or ""
-            ),
-            **(rule.annotations or {}),
-        },
-        startsAt=datetime.now(timezone.utc).isoformat(),
-        status=AlertStatus(state=AlertState.ACTIVE, silencedBy=[], inhibitedBy=[]),
-        fingerprint=f"test-{rule.id}",
+    alert = Alert.model_validate(
+        {
+            "labels": {"alertname": rule.name, "severity": rule.severity, **(rule.labels or {})},
+            "annotations": {
+                "summary": rule.annotations.get("summary", f"Test alert for {rule.name}"),
+                "description": rule.annotations.get("description", rule.expr),
+                "beobservantCorrelationId": str(getattr(rule, "group", "") or ""),
+                "beobservantCreatedBy": str(getattr(rule, "created_by", "") or ""),
+                "beobservantCreatedByUsername": str(
+                    (rule.annotations or {}).get("beobservantCreatedByUsername")
+                    or getattr(current_user, "username", "")
+                    or getattr(rule, "created_by", "")
+                    or ""
+                ),
+                "beobservantRuleName": str(getattr(rule, "name", "") or ""),
+                "beobservantProductName": str(
+                    rule.annotations.get("beobservantProductName")
+                    or rule.annotations.get("productName")
+                    or rule.annotations.get("product_name")
+                    or (rule.labels or {}).get("product")
+                    or ""
+                ),
+                **(rule.annotations or {}),
+            },
+            "startsAt": datetime.now(timezone.utc).isoformat(),
+            "endsAt": None,
+            "generatorURL": None,
+            "status": {"state": "active", "silencedBy": [], "inhibitedBy": []},
+            "fingerprint": f"test-{rule.id}",
+        }
     )
 
-    results = []
+    results: list[JSONDict] = []
     success_count = 0
     for channel in channels:
-        try:
-            ok = await notification_service.send_notification(channel, alert, "test")
-            results.append({"channel": channel.name, "ok": ok})
-            if ok:
-                success_count += 1
-        except Exception as exc:
-            logger.warning("Test notification failed for channel %s on rule %s: %s", channel.name, rule_id, exc)
-            results.append({"channel": channel.name, "ok": False, "error": "delivery_error"})
+        ok = await notification_service.send_notification(channel, alert, "test")
+        results.append({"channel": channel.name, "ok": ok})
+        if ok:
+            success_count += 1
 
     return {
         "status": "success" if success_count else "failed",
@@ -316,11 +320,10 @@ async def test_alert_rule(
 
 
 @router.delete("/rules/{rule_id}")
-@handle_route_errors()
 async def delete_alert_rule(
     rule_id: str,
     current_user: TokenData = Depends(require_permission_with_scope(Permission.DELETE_RULES, "alertmanager")),
-):
+) -> JSONDict:
     tenant_id, user_id, group_ids = alertmanager_service.user_scope(current_user)
     existing_rule = await run_in_threadpool(storage_service.get_alert_rule, rule_id, tenant_id, user_id, group_ids)
     if not existing_rule:

@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import logging
 import uuid
-from typing import Any, Dict, List, Optional, cast
+from typing import List, Optional
 
 from sqlalchemy.orm import joinedload
 
 from config import config as app_config
+from custom_types.json import JSONDict
 from database import get_db_session
 from db_models import AlertRule as AlertRuleDB
 from db_models import NotificationChannel as NotificationChannelDB
@@ -32,13 +33,26 @@ from services.storage.serializers import channel_to_pydantic, channel_to_pydanti
 logger = logging.getLogger(__name__)
 
 
-def _shared_group_ids(db_obj) -> List[str]:
-    return [g.id for g in db_obj.shared_groups] if getattr(db_obj, "shared_groups", None) else []
+def _shared_group_ids(db_obj: NotificationChannelDB) -> List[str]:
+    return [g.id for g in db_obj.shared_groups] if db_obj.shared_groups else []
+
+
+def _visibility_of(channel: NotificationChannelDB) -> str:
+    return str(getattr(channel, "visibility", None) or "private")
+
+
+def _creator_of(channel: NotificationChannelDB) -> str:
+    return str(getattr(channel, "created_by", None) or "")
+
+
+def _config_dict(channel: NotificationChannelDB) -> JSONDict:
+    raw_config = getattr(channel, "config", None)
+    return raw_config if isinstance(raw_config, dict) else {}
 
 
 class ChannelStorageService:
     @staticmethod
-    def _rule_channel_compatible(rule, channel) -> bool:
+    def _rule_channel_compatible(rule: AlertRuleDB, channel: NotificationChannelDB) -> bool:
         rule_visibility = normalize_storage_visibility(getattr(rule, "visibility", None))
         channel_visibility = normalize_storage_visibility(getattr(channel, "visibility", None))
         rule_owner = str(getattr(rule, "created_by", "") or "").strip()
@@ -48,7 +62,7 @@ class ChannelStorageService:
 
         # Private rules can only trigger private owner-bound channels.
         if rule_visibility == "private":
-            return channel_visibility == "private" and rule_owner and rule_owner == channel_owner
+            return bool(channel_visibility == "private" and rule_owner and rule_owner == channel_owner)
 
         # Group rules can only trigger tenant/public channels or channels shared to overlapping groups.
         if rule_visibility == "group":
@@ -83,14 +97,14 @@ class ChannelStorageService:
             results: List[NotificationChannel] = []
             for ch in channels:
                 if not has_access(
-                    cast(str, ch.visibility or "private"),
-                    cast(str, ch.created_by),
+                    _visibility_of(ch),
+                    _creator_of(ch),
                     user_id,
                     _shared_group_ids(ch),
                     group_ids,
                 ):
                     continue
-                raw_cfg = decrypt_config(cast(Dict[str, Any], getattr(ch, "config") or {}))
+                raw_cfg = decrypt_config(_config_dict(ch))
                 setattr(ch, "config", raw_cfg)
                 results.append(channel_to_pydantic_for_viewer(ch, user_id))
             return results
@@ -113,14 +127,14 @@ class ChannelStorageService:
             if not ch:
                 return None
             if not has_access(
-                cast(str, ch.visibility or "private"),
-                cast(str, ch.created_by),
+                _visibility_of(ch),
+                _creator_of(ch),
                 user_id,
                 _shared_group_ids(ch),
                 group_ids,
             ):
                 return None
-            raw_cfg = decrypt_config(cast(Dict[str, Any], getattr(ch, "config") or {}))
+            raw_cfg = decrypt_config(_config_dict(ch))
             setattr(ch, "config", raw_cfg)
             return channel_to_pydantic_for_viewer(ch, user_id)
 
@@ -147,7 +161,7 @@ class ChannelStorageService:
                 ch,
                 db,
                 tenant_id,
-                cast(str, ch.visibility or "private"),
+                _visibility_of(ch),
                 channel_create.shared_group_ids,
                 actor_group_ids=group_ids,
             )
@@ -155,7 +169,7 @@ class ChannelStorageService:
             db.flush()
             logger.info("Created channel %s (%s) visibility=%s", ch.name, ch.id, ch.visibility)
 
-            cfg = decrypt_config(cast(Dict[str, Any], getattr(ch, "config") or {}))
+            cfg = decrypt_config(_config_dict(ch))
             setattr(ch, "config", cfg)
             return channel_to_pydantic_for_viewer(ch, user_id)
 
@@ -187,7 +201,7 @@ class ChannelStorageService:
                 ch,
                 db,
                 tenant_id,
-                cast(str, ch.visibility or "private"),
+                _visibility_of(ch),
                 channel_update.shared_group_ids,
                 actor_group_ids=group_ids,
             )
@@ -195,7 +209,7 @@ class ChannelStorageService:
             db.flush()
             logger.info("Updated channel %s (%s)", ch.name, channel_id)
 
-            cfg = decrypt_config(cast(Dict[str, Any], getattr(ch, "config") or {}))
+            cfg = decrypt_config(_config_dict(ch))
             setattr(ch, "config", cfg)
             return channel_to_pydantic_for_viewer(ch, user_id)
 
@@ -227,7 +241,7 @@ class ChannelStorageService:
         tenant_id: str,
         user_id: str,
         group_ids: Optional[List[str]] = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, object]:
         channel = self.get_notification_channel(channel_id, tenant_id, user_id, group_ids)
         if not channel:
             return {"success": False, "error": "Channel not found"}
@@ -295,7 +309,7 @@ class ChannelStorageService:
                     if not self._rule_channel_compatible(r, ch):
                         compatible_skipped += 1
                         continue
-                    raw_cfg = decrypt_config(cast(Dict[str, Any], getattr(ch, "config") or {}))
+                    raw_cfg = decrypt_config(_config_dict(ch))
                     setattr(ch, "config", raw_cfg)
                     results.append(channel_to_pydantic(ch))
                     seen_ids.add(str(ch.id))

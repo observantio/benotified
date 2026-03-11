@@ -12,15 +12,29 @@ import base64
 import logging
 import os
 from urllib.parse import urlparse
-from typing import Any, Dict, List, Literal, Optional
+from typing import List, Literal, Mapping, Optional
 import httpx
 from config import config
+from custom_types.json import JSONDict, JSONValue
 from services.common.http_client import create_async_client
 from services.common.url_utils import is_safe_http_url
 
 logger = logging.getLogger(__name__)
 
-Credentials = Optional[Dict[str, Any]]
+Credentials = Optional[Mapping[str, object]]
+QueryParams = Mapping[str, str | int | float | bool | None]
+
+
+def _string_value(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
+
+
+def _json_dict(value: object) -> JSONDict:
+    return value if isinstance(value, dict) else {}
+
+
+def _json_dict_list(value: object) -> List[JSONDict]:
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 class JiraError(Exception):
     pass
@@ -39,18 +53,19 @@ class JiraService:
         url = scoped.get("base_url") or scoped.get("baseUrl") or self.base_url or ""
         return str(url).strip().rstrip("/")
 
-    def _auth_headers(self, credentials: Credentials = None) -> Dict[str, str]:
+    def _auth_headers(self, credentials: Credentials = None) -> dict[str, str]:
         scoped = credentials or {}
         auth_mode = str(scoped.get("auth_mode") or scoped.get("authMode") or "").strip().lower()
-        bearer = (
+        bearer_value = (
             scoped.get("bearer")
             or scoped.get("bearer_token")
             or scoped.get("bearerToken")
             or self.bearer
             or ""
-        ).strip()
-        email = (scoped.get("email") or self.email or "").strip()
-        api_token = (scoped.get("api_token") or scoped.get("apiToken") or self.api_token or "").strip()
+        )
+        bearer = _string_value(bearer_value)
+        email = _string_value(scoped.get("email") or self.email or "")
+        api_token = _string_value(scoped.get("api_token") or scoped.get("apiToken") or self.api_token or "")
 
         if auth_mode in {"bearer", "sso"}:
             if not bearer:
@@ -70,7 +85,7 @@ class JiraService:
 
         raise JiraError("No Jira credentials configured")
 
-    def _headers(self, credentials: Credentials = None) -> Dict[str, str]:
+    def _headers(self, credentials: Credentials = None) -> dict[str, str]:
         return {
             "Accept": "application/json",
             "Content-Type": "application/json",
@@ -88,9 +103,9 @@ class JiraService:
         method: Literal["GET", "POST"],
         path: str,
         credentials: Credentials = None,
-        params: Optional[Dict[str, Any]] = None,
-        payload: Optional[Dict[str, Any]] = None,
-    ) -> Any:
+        params: Optional[QueryParams] = None,
+        payload: Optional[JSONDict] = None,
+    ) -> JSONValue:
         url = self._build_url(path, credentials)
         headers = self._headers(credentials)
         try:
@@ -99,7 +114,8 @@ class JiraService:
             else:
                 response = await self._client.post(url, json=payload, headers=headers)
             response.raise_for_status()
-            return response.json() if response.content else {}
+            result = response.json() if response.content else {}
+            return result
         except httpx.HTTPStatusError as exc:
             logger.warning("Jira %s failed: %s %s", method, exc.response.status_code, exc.response.text[:240])
             detail = (exc.response.text or "").strip()
@@ -124,10 +140,10 @@ class JiraService:
             logger.exception("Unexpected Jira %s error", method)
             raise JiraError("Failed to contact Jira API") from exc
 
-    async def _get(self, path: str, credentials: Credentials = None, params: Optional[Dict[str, Any]] = None) -> Any:
+    async def _get(self, path: str, credentials: Credentials = None, params: Optional[QueryParams] = None) -> JSONValue:
         return await self._request("GET", path, credentials, params=params)
 
-    async def _post(self, path: str, payload: Dict[str, Any], credentials: Credentials = None) -> Any:
+    async def _post(self, path: str, payload: JSONDict, credentials: Credentials = None) -> JSONValue:
         return await self._request("POST", path, credentials, payload=payload)
 
     async def create_issue(
@@ -138,8 +154,8 @@ class JiraService:
         issue_type: str = "Task",
         priority: Optional[str] = None,
         credentials: Credentials = None,
-    ) -> Dict[str, Any]:
-        fields = {
+    ) -> JSONDict:
+        fields: JSONDict = {
             "project": {"key": project_key},
             "summary": summary,
             "description": description or "",
@@ -147,36 +163,37 @@ class JiraService:
         }
         if priority:
             fields["priority"] = {"name": str(priority).strip()}
-        payload = {
+        payload: JSONDict = {
             "fields": fields
         }
         data = await self._post("/rest/api/2/issue", payload, credentials)
-        key = data.get("key")
+        data_dict = _json_dict(data)
+        key = data_dict.get("key")
         base_url = self._resolve_base_url(credentials)
         return {
             "key": key,
             "url": f"{base_url}/browse/{key}" if key else None,
-            "raw": data,
+            "raw": data_dict,
         }
 
-    async def list_projects(self, credentials: Credentials = None) -> List[Dict[str, str]]:
+    async def list_projects(self, credentials: Credentials = None) -> List[dict[str, str]]:
         data = await self._get("/rest/api/2/project", credentials)
         return [
             {"key": key, "name": str(p.get("name") or key).strip()}
-            for p in (data or [])
+            for p in _json_dict_list(data)
             if (key := str(p.get("key") or "").strip())
         ]
 
     async def list_issue_types(self, project_key: str, credentials: Credentials = None) -> List[str]:
         project = await self._get(f"/rest/api/2/project/{project_key}", credentials)
-        issue_types = project.get("issueTypes") if isinstance(project, dict) else []
+        issue_types = _json_dict(project).get("issueTypes")
         return [
             name
-            for it in (issue_types or [])
+            for it in _json_dict_list(issue_types)
             if (name := str(it.get("name") or "").strip())
         ]
 
-    async def list_transitions(self, issue_key: str, credentials: Credentials = None) -> List[Dict[str, Any]]:
+    async def list_transitions(self, issue_key: str, credentials: Credentials = None) -> List[JSONDict]:
         data = await self._get(f"/rest/api/2/issue/{issue_key}/transitions", credentials)
         transitions = data.get("transitions") if isinstance(data, dict) else []
         return [item for item in (transitions or []) if isinstance(item, dict)]
@@ -186,12 +203,12 @@ class JiraService:
         issue_key: str,
         transition_id: str,
         credentials: Credentials = None,
-    ) -> Dict[str, Any]:
-        return await self._post(
+    ) -> JSONDict:
+        return _json_dict(await self._post(
             f"/rest/api/2/issue/{issue_key}/transitions",
             {"transition": {"id": str(transition_id)}},
             credentials,
-        )
+        ))
 
     async def transition_issue_to_todo(self, issue_key: str, credentials: Credentials = None) -> bool:
         return await self._transition_issue_by_target(
@@ -233,19 +250,22 @@ class JiraService:
         if not transitions:
             return False
 
-        def _name(item: Dict[str, Any]) -> str:
+        def _name(item: JSONDict) -> str:
             return str(item.get("name") or "").strip().lower()
 
-        def _target_name(item: Dict[str, Any]) -> str:
-            to_obj = item.get("to") if isinstance(item.get("to"), dict) else {}
+        def _target_name(item: JSONDict) -> str:
+            raw_to = item.get("to")
+            to_obj: JSONDict = raw_to if isinstance(raw_to, dict) else {}
             return str(to_obj.get("name") or "").strip().lower()
 
-        def _status_category(item: Dict[str, Any]) -> str:
-            to_obj = item.get("to") if isinstance(item.get("to"), dict) else {}
-            category = to_obj.get("statusCategory") if isinstance(to_obj.get("statusCategory"), dict) else {}
+        def _status_category(item: JSONDict) -> str:
+            raw_to = item.get("to")
+            to_obj: JSONDict = raw_to if isinstance(raw_to, dict) else {}
+            raw_category = to_obj.get("statusCategory")
+            category: JSONDict = raw_category if isinstance(raw_category, dict) else {}
             return str(category.get("key") or "").strip().lower()
 
-        preferred = next((item for item in transitions if _target_name(item) in target_names), None)
+        preferred: JSONDict | None = next((item for item in transitions if _target_name(item) in target_names), None)
         if not preferred:
             preferred = next((item for item in transitions if _name(item) in transition_names), None)
         if not preferred:
@@ -259,12 +279,12 @@ class JiraService:
         await self.transition_issue(issue_key, transition_id, credentials)
         return True
 
-    async def add_comment(self, issue_key: str, text: str, credentials: Credentials = None) -> Dict[str, Any]:
-        return await self._post(f"/rest/api/2/issue/{issue_key}/comment", {"body": text}, credentials)
+    async def add_comment(self, issue_key: str, text: str, credentials: Credentials = None) -> JSONDict:
+        return _json_dict(await self._post(f"/rest/api/2/issue/{issue_key}/comment", {"body": text}, credentials))
 
-    async def list_comments(self, issue_key: str, credentials: Credentials = None) -> List[Dict[str, Any]]:
+    async def list_comments(self, issue_key: str, credentials: Credentials = None) -> List[JSONDict]:
         data = await self._get(f"/rest/api/2/issue/{issue_key}/comment", credentials)
-        comments = data.get("comments") if isinstance(data, dict) else []
+        comments = _json_dict(data).get("comments")
         return [
             {
                 "id": str(item.get("id") or ""),
@@ -272,12 +292,11 @@ class JiraService:
                 "body": str(item.get("body") or ""),
                 "created": item.get("created"),
             }
-            for item in (comments or [])
-            if isinstance(item, dict)
+            for item in _json_dict_list(comments)
         ]
 
 
-def _extract_display_name(author: Any) -> str:
+def _extract_display_name(author: object) -> str:
     if not isinstance(author, dict):
         return "jira"
     return str(author.get("displayName") or author.get("name") or "jira")

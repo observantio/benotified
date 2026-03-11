@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 from starlette.responses import PlainTextResponse
 
 logger = logging.getLogger(__name__)
@@ -32,11 +33,11 @@ class _TooLarge(Exception):
 
 
 class RequestSizeLimitMiddleware:
-    def __init__(self, app, max_bytes: int = 1_048_576) -> None:
+    def __init__(self, app: ASGIApp, max_bytes: int = 1_048_576) -> None:
         self.app = app
         self.max_bytes = int(max_bytes)
 
-    async def __call__(self, scope, receive, send) -> None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope.get("type") != "http":
             await self.app(scope, receive, send)
             return
@@ -65,7 +66,7 @@ class RequestSizeLimitMiddleware:
         received = 0
         response_started = False
 
-        async def limited_receive():
+        async def limited_receive() -> Message:
             nonlocal received
             message = await receive()
             if message.get("type") == "http.request":
@@ -75,7 +76,7 @@ class RequestSizeLimitMiddleware:
                     raise _TooLarge(self.max_bytes)
             return message
 
-        async def tracking_send(message):
+        async def tracking_send(message: Message) -> None:
             nonlocal response_started
             if message.get("type") == "http.response.start":
                 response_started = True

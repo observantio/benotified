@@ -11,11 +11,13 @@ You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2
 import logging
 import os
 from urllib.parse import urlparse
+from collections.abc import Mapping, Sequence
 from typing import Dict, List, Optional
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
 from fastapi import HTTPException, status
 from sqlalchemy import and_
+from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from config import config
@@ -24,6 +26,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from db_models import AlertRule, Tenant
 from models.access.auth_models import Role, TokenData
+from custom_types.json import JSONDict
 from services.common.url_utils import is_safe_http_url
 from services.common.visibility import normalize_visibility as _base_normalize_visibility
 
@@ -43,17 +46,22 @@ def _current_user_id(current_user: TokenData) -> str:
     return _normalized_id(getattr(current_user, "user_id", ""))
 
 
-def _tenant_settings_copy(tenant: Tenant) -> Dict[str, object]:
-    current = tenant.settings if isinstance(tenant.settings, dict) else {}
+def _tenant_settings_copy(tenant: Tenant) -> JSONDict:
+    current: JSONDict = tenant.settings if isinstance(tenant.settings, dict) else {}
     return dict(current)
 
 
-def _persist_tenant_settings(tenant: Tenant, settings: Dict[str, object]) -> None:
+def _persist_tenant_settings(tenant: Tenant, settings: JSONDict) -> None:
     tenant.settings = dict(settings)
     flag_modified(tenant, "settings")
 
 
-def ensure_default_tenant(db) -> str:
+def _optional_string(value: object) -> Optional[str]:
+    text = str(value or "").strip()
+    return text or None
+
+
+def ensure_default_tenant(db: Session) -> str:
     db.execute(
         pg_insert(Tenant)
         .values(
@@ -95,7 +103,10 @@ def _alert_label_value(labels: Dict[str, object], *keys: str) -> str:
     return ""
 
 
-def infer_tenant_id_from_alerts(scoped_header: Optional[str], alerts: Optional[List[Dict[str, object]]]) -> str:
+def infer_tenant_id_from_alerts(
+    scoped_header: Optional[str],
+    alerts: Sequence[Mapping[str, object]] | None,
+) -> str:
     base_tenant_id = tenant_id_from_scope_header(scoped_header)
     if scoped_header and str(scoped_header).strip():
         return base_tenant_id
@@ -171,7 +182,7 @@ def encrypt_tenant_secret(value: Optional[str]) -> Optional[str]:
     try:
         fernet = Fernet(config.DATA_ENCRYPTION_KEY)
         return f"enc:{fernet.encrypt(value.encode()).decode()}"
-    except Exception as exc:
+    except (TypeError, ValueError) as exc:
         logger.exception("Failed to encrypt Jira secret")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -191,11 +202,11 @@ def decrypt_tenant_secret(value: Optional[str]) -> Optional[str]:
     try:
         fernet = Fernet(config.DATA_ENCRYPTION_KEY)
         return fernet.decrypt(text[4:].encode()).decode()
-    except Exception:
+    except (InvalidToken, TypeError, ValueError):
         return None
 
 
-def load_tenant_jira_config(tenant_id: str) -> Dict[str, Optional[str]]:
+def load_tenant_jira_config(tenant_id: str) -> Dict[str, object]:
     with get_db_session() as db:
         tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
         settings = (tenant.settings or {}) if tenant else {}
@@ -204,10 +215,10 @@ def load_tenant_jira_config(tenant_id: str) -> Dict[str, Optional[str]]:
             raw_jira = {}
         return {
             "enabled": bool(raw_jira.get("enabled", False)),
-            "base_url": str(raw_jira.get("base_url") or raw_jira.get("baseUrl") or "").strip() or None,
-            "email": str(raw_jira.get("email") or "").strip() or None,
-            "api_token": decrypt_tenant_secret(raw_jira.get("api_token")) or None,
-            "bearer": decrypt_tenant_secret(raw_jira.get("bearer")) or None,
+            "base_url": _optional_string(raw_jira.get("base_url") or raw_jira.get("baseUrl")),
+            "email": _optional_string(raw_jira.get("email")),
+            "api_token": decrypt_tenant_secret(_optional_string(raw_jira.get("api_token"))) or None,
+            "bearer": decrypt_tenant_secret(_optional_string(raw_jira.get("bearer"))) or None,
         }
 
 
@@ -239,7 +250,7 @@ def save_tenant_jira_config(
         if not tenant:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tenant not found")
         settings = _tenant_settings_copy(tenant)
-        jira_cfg = {
+        jira_cfg: JSONDict = {
             "enabled": bool(enabled),
             "base_url": normalized_url,
             "email": normalized_email,
@@ -260,12 +271,25 @@ def save_tenant_jira_config(
 
 def get_effective_jira_credentials(tenant_id: str) -> Dict[str, Optional[str]]:
     tenant_cfg = load_tenant_jira_config(tenant_id)
+    base_url = tenant_cfg.get("base_url")
+    email = tenant_cfg.get("email")
+    api_token = tenant_cfg.get("api_token")
+    bearer = tenant_cfg.get("bearer")
+    base_url_str = base_url if isinstance(base_url, str) else None
+    email_str = email if isinstance(email, str) else None
+    api_token_str = api_token if isinstance(api_token, str) else None
+    bearer_str = bearer if isinstance(bearer, str) else None
     if (
         tenant_cfg.get("enabled")
-        and is_safe_http_url(tenant_cfg.get("base_url"))
-        and (tenant_cfg.get("bearer") or (tenant_cfg.get("email") and tenant_cfg.get("api_token")))
+        and is_safe_http_url(base_url_str)
+        and (bearer_str or (email_str and api_token_str))
     ):
-        return tenant_cfg
+        return {
+            "base_url": base_url_str,
+            "email": email_str,
+            "api_token": api_token_str,
+            "bearer": bearer_str,
+        }
     return {}
 
 
@@ -283,7 +307,7 @@ def normalize_visibility(value: Optional[str], default_value: str = "private") -
         value,
         default_value=default_value,
         public_alias="tenant",
-        allowed={"tenant", "group", "private"},
+        allowed=frozenset({"tenant", "group", "private"}),
     )
 
 
@@ -344,7 +368,7 @@ def validate_jira_credentials(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
 
-def load_tenant_jira_integrations(tenant_id: str) -> List[Dict[str, object]]:
+def load_tenant_jira_integrations(tenant_id: str) -> List[JSONDict]:
     with get_db_session() as db:
         tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
         settings = (tenant.settings or {}) if tenant else {}
@@ -354,7 +378,7 @@ def load_tenant_jira_integrations(tenant_id: str) -> List[Dict[str, object]]:
         return [item for item in raw_items if isinstance(item, dict)]
 
 
-def save_tenant_jira_integrations(tenant_id: str, items: List[Dict[str, object]]) -> None:
+def save_tenant_jira_integrations(tenant_id: str, items: List[JSONDict]) -> None:
     with get_db_session() as db:
         tenant = db.query(Tenant).filter(Tenant.id == tenant_id).first()
         if not tenant:
@@ -382,7 +406,7 @@ def validate_shared_group_ids_for_user(
     return normalized
 
 
-def jira_integration_has_access(item: Dict[str, object], current_user: TokenData, *, write: bool = False) -> bool:
+def jira_integration_has_access(item: Mapping[str, object], current_user: TokenData, *, write: bool = False) -> bool:
     if _normalized_id(item.get("createdBy")) == _current_user_id(current_user):
         return True
     if write:
@@ -391,24 +415,28 @@ def jira_integration_has_access(item: Dict[str, object], current_user: TokenData
     if visibility == "tenant":
         return True
     if visibility == "group":
-        shared_group_ids = set(_normalized_id_list(item.get("sharedGroupIds") or []))
-        user_groups = set(_normalized_id_list(getattr(current_user, "group_ids", []) or []))
+        raw_shared_group_ids = item.get("sharedGroupIds")
+        raw_user_groups = getattr(current_user, "group_ids", []) or []
+        shared_group_ids = set(_normalized_id_list(raw_shared_group_ids if isinstance(raw_shared_group_ids, list) else []))
+        user_groups = set(_normalized_id_list(raw_user_groups if isinstance(raw_user_groups, list) else []))
         return bool(set(shared_group_ids) & set(user_groups))
     return False
 
 
-def mask_jira_integration(item: Dict[str, object], current_user: TokenData) -> Dict[str, object]:
+def mask_jira_integration(item: Mapping[str, object], current_user: TokenData) -> JSONDict:
     is_owner = _normalized_id(item.get("createdBy")) == _current_user_id(current_user)
+    raw_shared_group_ids = item.get("sharedGroupIds")
+    shared_group_ids = _normalized_id_list(raw_shared_group_ids if isinstance(raw_shared_group_ids, list) else None)
     return {
-        "id": item.get("id"),
-        "name": item.get("name"),
+        "id": _optional_string(item.get("id")),
+        "name": _optional_string(item.get("name")),
         "enabled": bool(item.get("enabled", True)),
         "visibility": normalize_visibility(str(item.get("visibility") or "private"), "private"),
-        "sharedGroupIds": item.get("sharedGroupIds") or [],
-        "createdBy": item.get("createdBy"),
-        "authMode": item.get("authMode") or "api_token",
-        "baseUrl": item.get("baseUrl") if is_owner else None,
-        "email": item.get("email") if is_owner else None,
+        "sharedGroupIds": shared_group_ids,
+        "createdBy": _optional_string(item.get("createdBy")),
+        "authMode": _optional_string(item.get("authMode")) or "api_token",
+        "baseUrl": _optional_string(item.get("baseUrl")) if is_owner else None,
+        "email": _optional_string(item.get("email")) if is_owner else None,
         "hasApiToken": bool(item.get("apiToken")),
         "hasBearerToken": bool(item.get("bearerToken")),
         "supportsSso": bool(item.get("supportsSso", False)),
@@ -421,7 +449,7 @@ def resolve_jira_integration(
     current_user: TokenData,
     *,
     require_write: bool = False,
-) -> Dict[str, object]:
+) -> JSONDict:
     integrations = load_tenant_jira_integrations(tenant_id)
     match = next((item for item in integrations if str(item.get("id")) == integration_id), None)
     if not match or not jira_integration_has_access(match, current_user, write=require_write):
@@ -429,17 +457,20 @@ def resolve_jira_integration(
     return match
 
 
-def jira_integration_credentials(item: Dict[str, object]) -> Dict[str, Optional[str]]:
+def jira_integration_credentials(item: Mapping[str, object]) -> Dict[str, Optional[str]]:
+    auth_mode_raw = item.get("authMode")
+    api_token_raw = item.get("apiToken")
+    bearer_token_raw = item.get("bearerToken")
     return {
-        "auth_mode": normalize_jira_auth_mode(item.get("authMode")),
+        "auth_mode": normalize_jira_auth_mode(str(auth_mode_raw) if auth_mode_raw is not None else None),
         "base_url": str(item.get("baseUrl") or "").strip() or None,
         "email": str(item.get("email") or "").strip() or None,
-        "api_token": decrypt_tenant_secret(item.get("apiToken")) or None,
-        "bearer": decrypt_tenant_secret(item.get("bearerToken")) or None,
+        "api_token": decrypt_tenant_secret(str(api_token_raw) if api_token_raw is not None else None) or None,
+        "bearer": decrypt_tenant_secret(str(bearer_token_raw) if bearer_token_raw is not None else None) or None,
     }
 
 
-def integration_is_usable(item: Dict[str, object]) -> bool:
+def integration_is_usable(item: Mapping[str, object]) -> bool:
     if not item.get("enabled", True):
         return False
     try:

@@ -1,113 +1,241 @@
-# 🔔 Be Notified
+# Be Notified
 
-### The Pulse of Incident Orchestration & Alert Management.
+Be Notified is the internal alerting and incident-management service in the Observantio stack. It sits behind the main control plane and owns the alerting domain that needs durable state and workflow logic: alert rules, silences, notification channels, incidents, Jira integrations, and inbound Alertmanager webhooks.
 
-**Be Notified** is the high-performance engine that powers the alerting domain of the Be Observant platform. While Alertmanager handles the routing, **Be Notified** handles the *human* side of the equation—managing the full incident lifecycle, coordinating team collaborations, and bridging the gap between raw telemetry and external tools like Jira, Slack, and PagerDuty.
+In practice, Be Notified is the service that turns alert traffic into something operators can work with. It keeps rule state in sync with Mimir, stores incident history, enforces tenant and group visibility, and handles side effects such as incident assignment emails and Jira synchronization.
 
 ![BeNotified](assets/beobservant.png)
 
-Designed as an internal-tier service, it provides a secure, multi-tenant layer to sync rules with Mimir and ensure that every alert is not just heard, but acted upon.
+## What This Service Owns
 
----
+- Alertmanager-facing APIs for alerts, silences, status, receivers, and webhooks.
+- Persistent alert rule management with visibility controls and Mimir sync.
+- Notification channel management for email, Slack, Teams, webhook, and PagerDuty.
+- Incident lifecycle management, including assignee changes, notes, summary views, and state transitions.
+- Jira integration discovery, configuration, issue linking, and comment synchronization.
+- Internal-only request validation between BeObservant and BeNotified.
 
-## ✨ Core Capabilities
+## Runtime Overview
 
-* **⚡ Intelligent Ingestion:** Seamlessly processes webhooks from Alertmanager and translates them into actionable incidents.
-* **📋 Incident Management:** A centralized hub for tracking status, adding notes, and assigning responders.
-* **🔄 Mimir Rule Sync:** Automatically keeps your PromQL alert rules in sync with the Mimir ruler.
-* **🔌 Enterprise Integrations:** Native, bi-directional integration with Jira and multi-channel delivery (Email, Slack, etc.).
-* **🛡️ Secure Internal Proxy:** Proxies authenticated Alertmanager traffic from the main `beobservant` API.
+Be Notified is intended to run on the internal network only.
 
----
-
-## 🏗 System Architecture & Runtime
-
-Be Notified is designed to run within your internal network, acting as a protected backend for the primary platform.
-
-| Detail | Specification |
+| Detail | Value |
 | --- | --- |
-| **Service Port** | `4323` |
-| **Internal Base Path** | `/internal/v1` |
-| **Primary Dependency** | Alertmanager & Mimir |
-| **Authentication** | Shared Service Token + Context JWT |
+| Service name | `BeNotified` |
+| Default host | `127.0.0.1` |
+| Default port | `4319` |
+| Docs path | `/docs` when `ENABLE_API_DOCS=true` |
+| Health | `/health` |
+| Readiness | `/ready` |
+| Main API prefix | `/internal/v1/api/alertmanager` |
+| Webhook prefix | `/internal/v1/alertmanager` |
 
-### Internal Communication
+The service initializes its database on startup, wires request-size and concurrency middleware, then exposes the internal API used by the main BeObservant control plane.
 
-To maintain a strict security posture, all calls from the main service to Be Notified must include:
+## Security Model
 
-* `X-Service-Token`: A shared secret between internal services.
-* `Authorization: Bearer <context-jwt>`: Signed user/tenant context.
+Most requests must come from another trusted internal service.
 
----
+Required controls:
 
-## 🚀 Getting Started
+- `X-Service-Token`: must match `BENOTIFIED_EXPECTED_SERVICE_TOKEN` or `GATEWAY_INTERNAL_SERVICE_TOKEN`.
+- `Authorization: Bearer <context-jwt>`: required by permission-protected routes so tenant, user, role, and group context can be enforced.
+- `INBOUND_WEBHOOK_TOKEN`: required for public-style Alertmanager webhook ingress and validated by the alerting service.
 
-### 1. Installation
+Paths exempt from the service-token middleware:
 
-Clone the repository alongside your other Be Observant services:
+- `/health`
+- `/ready`
+- `/docs`, `/redoc`, `/openapi.json` when docs are enabled
+- webhook ingress routes under `/internal/v1/alertmanager/alerts/*`
 
-```bash
-git clone https://github.com/observantio/benotified.git BeNotified
-cd BeNotified
+This service should not be exposed directly to the public internet. It may need outward connectivity to send alerts to channels
 
-```
+## API Surface
 
-### 2. Run with Docker
+Main route groups:
 
-Build and launch the notification engine:
+- Alerts: list, group, create, and delete Alertmanager alerts.
+- Silences: list, get, create, update, delete, and hide silences.
+- Rules: import, list, read, create, update, delete, hide, test, and metrics-name discovery.
+- Channels: list, read, create, update, delete, hide, and test notification channels.
+- Incidents: list, summarize, and patch incidents.
+- Jira: integration config, project discovery, issue-type discovery, incident linking, and note/comment sync.
+- Access maintenance: group-share pruning for visibility cleanup.
+- Webhooks: inbound alert webhooks and severity-specific ingress endpoints.
 
-```bash
-docker build -t benotified:latest .
-docker run --rm -it \
-    -p 4323:4323 \
-    --name benotified \
-    benotified:latest
+The route layout is split across these internal domains:
 
-```
+- `routers/observability/alerts/*`
+- `routers/observability/incidents.py`
+- `routers/observability/jira/*`
 
-### 3. Required Environment
+## Core Dependencies
 
-Ensure your `.env` or secret manager contains these critical variables:
+Be Notified depends on:
+
+- PostgreSQL for persistent state.
+- Alertmanager for alert and silence operations.
+- Mimir for rule synchronization and metric discovery.
+- SMTP or third-party mail providers for incident and onboarding email notifications.
+- Optional Jira integration for linked incident workflows.
+
+## Environment Variables
+
+The full configuration surface lives in `config.py`. These are the variables most developers need first.
+
+### Required or Strongly Recommended
 
 ```env
-BENOTIFIED_DATABASE_URL=postgres://...
-BENOTIFIED_EXPECTED_SERVICE_TOKEN=your-shared-secret
-INBOUND_WEBHOOK_TOKEN=secure-webhook-token
+DATABASE_URL=postgresql://user:strongPassword@db:5432/observantio
+BENOTIFIED_DATABASE_URL=postgresql://user:strongPassword@db:5432/observantio
+BENOTIFIED_EXPECTED_SERVICE_TOKEN=replace-with-a-long-random-shared-secret
+INBOUND_WEBHOOK_TOKEN=replace-with-a-long-random-webhook-secret
+GATEWAY_INTERNAL_SERVICE_TOKEN=replace-with-a-long-random-shared-secret
 MIMIR_URL=http://mimir:9009
 ALERTMANAGER_URL=http://alertmanager:9093
+JWT_ALGORITHM=RS256
 ```
 
----
+### Frequently Used Operational Settings
 
-## 🛠 Operational Workflow
+```env
+HOST=127.0.0.1
+PORT=4319
+LOG_LEVEL=info
+ENABLE_API_DOCS=true
+DEFAULT_TIMEOUT=30
+MAX_REQUEST_BYTES=1048576
+MAX_CONCURRENT_REQUESTS=200
+CONCURRENCY_ACQUIRE_TIMEOUT=1.0
+RATE_LIMIT_PUBLIC_PER_MINUTE=120
+```
 
-### The Alert Journey
+### Internal Context JWT Settings
 
-1. **Trigger:** An alert fires in Prometheus/Mimir based on your rules.
-2. **Route:** Alertmanager sends a webhook to Be Notified.
-3. **Create:** Be Notified validates the `INBOUND_WEBHOOK_TOKEN` and opens a new Incident.
-4. **Notify:** Based on visibility (Private/Group/Tenant), notifications are dispatched to configured channels.
-5. **Resolve:** The team collaborates in the UI; once resolved, the status is synced back across the ecosystem.
+```env
+BENOTIFIED_CONTEXT_VERIFY_KEY=replace-with-shared-jwt-verification-key
+BENOTIFIED_CONTEXT_SIGNING_KEY=replace-with-shared-jwt-signing-key
+BENOTIFIED_CONTEXT_ISSUER=beobservant-main
+BENOTIFIED_CONTEXT_AUDIENCE=benotified
+BENOTIFIED_CONTEXT_ALGORITHM=HS256
+BENOTIFIED_CONTEXT_REPLAY_TTL_SECONDS=180
+```
 
----
+### Email Settings
 
-## 🤝 Development & Contribution
+The service supports assignment, welcome, and temporary-password emails. The exact keys depend on the flow. Examples:
 
-Be Notified is built with Python and FastAPI, optimized for low-latency incident processing.
+```env
+INCIDENT_ASSIGNMENT_EMAIL_ENABLED=true
+INCIDENT_ASSIGNMENT_SMTP_HOST=smtp.example.com
+INCIDENT_ASSIGNMENT_SMTP_PORT=587
+INCIDENT_ASSIGNMENT_SMTP_USERNAME=mailer
+INCIDENT_ASSIGNMENT_SMTP_PASSWORD=super-secret
+INCIDENT_ASSIGNMENT_FROM=alerts@example.com
 
-**Running Tests:**
+USER_WELCOME_EMAIL_ENABLED=true
+USER_WELCOME_SMTP_HOST=smtp.example.com
+PASSWORD_RESET_EMAIL_ENABLED=true
+APP_LOGIN_URL=https://observantio.example.com/login
+```
+
+### Optional Hardening
+
+```env
+TRUST_PROXY_HEADERS=false
+TRUSTED_PROXY_CIDRS=
+WEBHOOK_IP_ALLOWLIST=
+AUTH_PUBLIC_IP_ALLOWLIST=
+GRAFANA_PROXY_IP_ALLOWLIST=
+ALLOWLIST_FAIL_OPEN=false
+```
+
+## Local Development
+
+### 1. Install dependencies
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
+### 2. Configure environment
+
+Set the environment variables above. At minimum, provide a real database URL and internal service secrets. The config validation rejects obviously weak example credentials in normal runs.
+
+### 3. Run the service
+
+```bash
+python main.py
+```
+
+Or with uvicorn:
+
+```bash
+uvicorn main:app --host 127.0.0.1 --port 4319 --reload
+```
+
+### 4. Run tests
 
 ```bash
 pytest -q
 ```
 
-**Quality Gates:**
-This repository is a core part of the **Be Observant** ecosystem. If you are contributing from the mono-repo root, your commits will be validated by `.pre-commit-config.yaml` to ensure cross-service compatibility.
+To run coverage for service modules:
 
----
+```bash
+pytest -q --cov=services --cov-report=term-missing
+```
 
-## 📄 License
+The service `pyproject.toml` now carries the developer-facing pytest, coverage, and mypy defaults so local editors and Python tooling can discover the service configuration from a standard entry point.
 
-Licensed under the **Apache License 2.0**.
+## Docker
 
-*Attribution: The notices included in the source code and headers must be preserved in all redistributions. This service is intended for internal network deployment and should not be exposed to the public internet.*
+Build and run the service locally:
+
+```bash
+docker build -t benotified:latest .
+docker run --rm -it \
+    -p 4319:4319 \
+    --env-file .env \
+    --name benotified \
+    benotified:latest
+```
+
+In the mono-repo, prefer the root `docker-compose.yml` and root environment files as the deployment source of truth.
+
+## Request Flow
+
+Typical incident flow:
+
+1. Alertmanager sends alerts to Be Notified webhook endpoints.
+2. Be Notified validates inbound webhook security.
+3. Alert payloads are normalized into incident state and stored.
+4. Rules, silences, channels, and incidents are filtered by tenant and group visibility.
+5. Assignee changes, notes, and state transitions can trigger emails and Jira synchronization.
+6. Rule changes are pushed back to Mimir so the alert source of truth stays aligned.
+
+## Developer Notes
+
+- `main.py` performs database setup at startup.
+- `services/alertmanager_service.py` is the core orchestrator for Alertmanager, silences, webhook security, and Mimir rule sync.
+- `services/storage_db_service.py` is the high-level storage facade over rules, channels, incidents, and hidden-resource state.
+- `services/notification_service.py` handles assignment and account email flows.
+- `services/jira_service.py` and `routers/observability/jira/*` cover Jira integration lifecycle and incident linkage.
+
+## Troubleshooting
+
+Common startup issues:
+
+- `Service token not configured`: set `BENOTIFIED_EXPECTED_SERVICE_TOKEN` or `GATEWAY_INTERNAL_SERVICE_TOKEN`.
+- `Unsafe DATABASE_URL detected`: replace placeholder credentials with a real credentialed DSN.
+- Readiness returns `503`: database connectivity is failing.
+- Webhooks return `401`: `INBOUND_WEBHOOK_TOKEN` does not match the incoming header or bearer token.
+
+## License
+
+Licensed under the Apache License 2.0.
+
+Preserve the existing notices and attribution headers in redistributed copies.

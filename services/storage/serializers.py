@@ -12,8 +12,10 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any
 
+from db_models import AlertIncident as AlertIncidentDB
+from db_models import AlertRule as AlertRuleDB
+from db_models import NotificationChannel as NotificationChannelDB
 from models.alerting.channels import NotificationChannel as NotificationChannelPydantic
 from models.alerting.incidents import AlertIncident as AlertIncidentPydantic, IncidentStatus
 from models.alerting.rules import AlertRule as AlertRulePydantic
@@ -22,7 +24,7 @@ from services.common.meta import INCIDENT_META_KEY, parse_meta, _safe_group_ids
 logger = logging.getLogger(__name__)
 
 
-def rule_to_pydantic(r) -> AlertRulePydantic:
+def rule_to_pydantic(r: AlertRuleDB) -> AlertRulePydantic:
     payload = {
         "id": r.id,
         "createdBy": getattr(r, "created_by", None),
@@ -43,11 +45,11 @@ def rule_to_pydantic(r) -> AlertRulePydantic:
     return AlertRulePydantic.parse_obj(payload)
 
 
-def channel_to_pydantic(ch) -> NotificationChannelPydantic:
+def channel_to_pydantic(ch: NotificationChannelDB) -> NotificationChannelPydantic:
     return channel_to_pydantic_for_viewer(ch, viewer_user_id=getattr(ch, "created_by", None))
 
 
-def channel_to_pydantic_for_viewer(ch, viewer_user_id: Any) -> NotificationChannelPydantic:
+def channel_to_pydantic_for_viewer(ch: NotificationChannelDB, viewer_user_id: object) -> NotificationChannelPydantic:
     raw_config = getattr(ch, "config", None) or {}
     payload = {
         "id": ch.id,
@@ -63,7 +65,7 @@ def channel_to_pydantic_for_viewer(ch, viewer_user_id: Any) -> NotificationChann
     return NotificationChannelPydantic.parse_obj(payload)
 
 
-def incident_to_pydantic(incident) -> AlertIncidentPydantic:
+def incident_to_pydantic(incident: AlertIncidentDB) -> AlertIncidentPydantic:
     annotations = incident.annotations or {}
     meta = parse_meta(annotations)
 

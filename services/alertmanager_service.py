@@ -14,6 +14,7 @@ from hmac import compare_digest
 from typing import Dict, List, Optional
 
 from fastapi import HTTPException, Request, status
+from sqlalchemy.exc import SQLAlchemyError
 
 from config import config
 from database import get_db_session
@@ -25,6 +26,9 @@ from models.alerting.alerts import Alert, AlertGroup
 from models.alerting.receivers import AlertManagerStatus
 from models.alerting.rules import AlertRule
 from models.alerting.silences import Silence, SilenceCreate
+from services.storage_db_service import DatabaseStorageService
+from services.notification_service import NotificationService
+from custom_types.json import JSONDict
 from services.alerting.alerts_ops import (
     delete_alerts as delete_alerts_ops,
     get_alert_groups as get_alert_groups_ops,
@@ -72,11 +76,12 @@ MIMIR_RULES_NAMESPACE = "beobservant"
 MIMIR_RULER_CONFIG_BASEPATH = "/prometheus/config/v1/rules"
 
 class AlertManagerService:
-    def __init__(self, alertmanager_url: str = config.ALERTMANAGER_URL):
+    def __init__(self, alertmanager_url: str = config.ALERTMANAGER_URL) -> None:
         self.MIMIR_RULES_NAMESPACE = MIMIR_RULES_NAMESPACE
         self.MIMIR_RULER_CONFIG_BASEPATH = MIMIR_RULER_CONFIG_BASEPATH
         self.alertmanager_url = alertmanager_url.rstrip("/")
         self.timeout = config.DEFAULT_TIMEOUT
+        self.logger = logger
         self._client = create_async_client(self.timeout)
         self._mimir_client = create_async_client(self.timeout)
 
@@ -157,7 +162,13 @@ class AlertManagerService:
     def _extract_mimir_group_names(self, namespace_yaml: str) -> List[str]:
         return extract_mimir_group_names(namespace_yaml)
 
-    async def notify_for_alerts(self, tenant_id: str, alerts_list, storage_service, notification_service) -> None:
+    async def notify_for_alerts(
+        self,
+        tenant_id: str,
+        alerts_list: List[JSONDict],
+        storage_service: DatabaseStorageService,
+        notification_service: NotificationService,
+    ) -> None:
         return await notify_for_alerts_ops(self, tenant_id, alerts_list, storage_service, notification_service)
 
     async def list_metric_names(self, org_id: str) -> List[str]:
@@ -221,7 +232,7 @@ class AlertManagerService:
                     db.add(PurgedSilence(id=silence_id, tenant_id=None))
                     db.commit()
                     logger.info("Purged silence %s persisted to DB", silence_id)
-        except Exception as exc:
+        except SQLAlchemyError as exc:
             logger.warning("Failed to persist purged silence %s: %s", silence_id, exc)
         return True
 
